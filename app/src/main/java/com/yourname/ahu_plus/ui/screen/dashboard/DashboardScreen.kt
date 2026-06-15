@@ -63,6 +63,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.JwcNotice
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
+import com.yourname.ahu_plus.data.model.jw.formatTime
+import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
 import com.yourname.ahu_plus.data.repository.CourseRepository
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
@@ -725,55 +727,6 @@ private fun AppDockItem(
     }
 }
 
-@Composable
-private fun PlaceholderSection(
-    title: String,
-    description: String,
-    iconColor: Color,
-    icon: @Composable () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(iconColor.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                androidx.compose.runtime.CompositionLocalProvider(
-                    androidx.compose.material3.LocalContentColor provides iconColor
-                ) {
-                    icon()
-                }
-            }
-            Column(
-                modifier = Modifier.padding(start = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
 private fun isNotStarted(
     course: CourseDisplayItem,
     unitTimes: List<CourseUnit>
@@ -809,19 +762,4 @@ private fun courseStartMinutes(
     return parseTimeMinutes(text)
 }
 
-private fun parseTimeMinutes(value: String?): Int? {
-    if (value.isNullOrBlank()) return null
-    val digits = value.filter { it.isDigit() }
-    if (digits.length < 3) return null
-    val padded = digits.padStart(4, '0')
-    val hour = padded.take(2).toIntOrNull() ?: return null
-    val minute = padded.drop(2).take(2).toIntOrNull() ?: return null
-    return hour * 60 + minute
-}
 
-private fun formatTime(value: String): String {
-    val digits = value.filter { it.isDigit() }
-    if (digits.length < 3) return value
-    val padded = digits.padStart(4, '0')
-    return "${padded.take(2)}:${padded.drop(2).take(2)}"
-}

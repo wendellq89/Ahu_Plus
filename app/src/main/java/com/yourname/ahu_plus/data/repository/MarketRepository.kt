@@ -2,11 +2,10 @@ package com.yourname.ahu_plus.data.repository
 
 import android.util.Base64
 import android.util.Log
-import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.google.gson.Strictness
+import com.yourname.ahu_plus.data.GsonProvider
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.MarketComment
 import com.yourname.ahu_plus.data.model.MarketCommentReplies
@@ -26,7 +25,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class MarketRepository(
     private val sessionManager: SessionManager
 ) {
-    private val gson = GsonBuilder().setStrictness(Strictness.LENIENT).create()
+    private val gson = GsonProvider.instance
     private val client = SecureHttpClientFactory.create()
 
     suspend fun getTopics(page: Int = 1): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
@@ -94,31 +93,19 @@ class MarketRepository(
         nodeId: Long,
         isAnon: Boolean
     ): Result<Long> = withContext(Dispatchers.IO) {
-        val payload = buildString {
-            append('{')
-            append("\"title\":").append(jsonString(title.ifBlank { "none" }))
-            append(',')
-            append("\"content\":").append(jsonString(content))
-            append(',')
-            append("\"is_anon\":").append(if (isAnon) 1 else 0)
-            append(',')
-            append("\"link_type\":0")
-            append(',')
-            append("\"link_people\":\"\"")
-            append(',')
-            append("\"link_info\":\"\"")
-            append(',')
-            append("\"node_id\":").append(nodeId)
-            append(',')
-            append("\"imgs\":[]")
-            append(',')
-            append("\"source\":\"xcx\"")
-            append(',')
-            append("\"school_sub_address_id\":\"\"")
-            append(',')
-            append("\"is_ad_fake\":0")
-            append('}')
-        }
+        val payload = gson.toJson(JsonObject().apply {
+            addProperty("title", title.ifBlank { "none" })
+            addProperty("content", content)
+            addProperty("is_anon", if (isAnon) 1 else 0)
+            addProperty("link_type", 0)
+            addProperty("link_people", "")
+            addProperty("link_info", "")
+            addProperty("node_id", nodeId)
+            add("imgs", com.google.gson.JsonArray())
+            addProperty("source", "xcx")
+            addProperty("school_sub_address_id", "")
+            addProperty("is_ad_fake", 0)
+        })
 
         postMarketJson(TOPICS_URL, payload).mapCatching { body -> parseCreatedTopicId(body) }
     }
@@ -146,27 +133,17 @@ class MarketRepository(
         replyId: Long = 0L,
         targetUserId: Long = 0L
     ): Result<MarketComment> = withContext(Dispatchers.IO) {
-        val payload = buildString {
-            append('{')
-            append("\"is_fake\":0")
-            append(',')
-            append("\"target_user_id\":").append(targetUserId)
-            append(',')
-            append("\"topic_id\":").append(topicId)
-            append(',')
-            append("\"comment_id\":").append(commentId)
-            append(',')
-            append("\"reply_id\":").append(replyId)
-            append(',')
-            append("\"content\":").append(jsonString(content))
-            append(',')
-            append("\"imgs\":[]")
-            append(',')
-            append("\"source\":\"xcx\"")
-            append(',')
-            append("\"is_ad_fake\":0")
-            append('}')
-        }
+        val payload = gson.toJson(JsonObject().apply {
+            addProperty("is_fake", 0)
+            addProperty("target_user_id", targetUserId)
+            addProperty("topic_id", topicId)
+            addProperty("comment_id", commentId)
+            addProperty("reply_id", replyId)
+            addProperty("content", content)
+            add("imgs", com.google.gson.JsonArray())
+            addProperty("source", "xcx")
+            addProperty("is_ad_fake", 0)
+        })
 
         postMarketJson(COMMENTS_URL, payload).mapCatching { body -> parseCreatedComment(body, topicId) }
     }
@@ -439,28 +416,6 @@ class MarketRepository(
         return parsed.copy(topicId = fallbackTopicId)
     }
 
-    private fun jsonString(raw: String): String {
-        val sb = StringBuilder(raw.length + 2)
-        sb.append('"')
-        for (ch in raw) {
-            when (ch) {
-                '"' -> sb.append("\\\"")
-                '\\' -> sb.append("\\\\")
-                '\n' -> sb.append("\\n")
-                '\r' -> sb.append("\\r")
-                '\t' -> sb.append("\\t")
-                '\b' -> sb.append("\\b")
-                '' -> sb.append("\\f")
-                else -> if (ch.code < 0x20) {
-                    sb.append("\\u%04x".format(ch.code))
-                } else {
-                    sb.append(ch)
-                }
-            }
-        }
-        sb.append('"')
-        return sb.toString()
-    }
 
     companion object {
         private const val TAG = "MarketRepo"
@@ -522,9 +477,3 @@ private fun Request.Builder.applyMarketHeaders(identity: String): Request.Builde
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .header("Authorization", MarketRepository.normalizeIdentity(identity))
-
-private fun Iterable<JsonElement>.toList(): List<JsonElement> {
-    val result = mutableListOf<JsonElement>()
-    forEach { result.add(it) }
-    return result
-}

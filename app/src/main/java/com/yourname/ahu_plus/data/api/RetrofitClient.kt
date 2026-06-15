@@ -1,7 +1,6 @@
 package com.yourname.ahu_plus.data.api
 
-import com.google.gson.GsonBuilder
-import com.google.gson.Strictness
+import com.yourname.ahu_plus.data.GsonProvider
 import com.yourname.ahu_plus.data.local.SessionManager
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -32,9 +31,7 @@ object RetrofitClient {
             .readTimeout(15, TimeUnit.SECONDS)
             .build()
 
-        val gson = GsonBuilder()
-            .setStrictness(Strictness.LENIENT)
-            .create()
+        val gson = GsonProvider.instance
 
         return Retrofit.Builder()
             .baseUrl(BASE_URL)

@@ -242,3 +242,27 @@ data class ScheduleData(
     val weekIndices: List<Int>,
     val lessons: List<GetDataLesson>?
 )
+
+/**
+ * 将时间字符串（如 "0800", "14:30", "8:00"）解析为从零点开始的分钟数。
+ * 返回 null 表示无法解析。
+ */
+fun parseTimeMinutes(value: String?): Int? {
+    if (value.isNullOrBlank()) return null
+    val digits = value.filter { it.isDigit() }
+    if (digits.length < 3) return null
+    val padded = digits.padStart(4, '0')
+    val hour = padded.take(2).toIntOrNull() ?: return null
+    val minute = padded.drop(2).take(2).toIntOrNull() ?: return null
+    return hour * 60 + minute
+}
+
+/**
+ * 将时间字符串格式化为 "HH:MM" 显示格式。
+ */
+fun formatTime(value: String): String {
+    val digits = value.filter { it.isDigit() }
+    if (digits.length < 3) return value
+    val padded = digits.padStart(4, '0')
+    return "${padded.take(2)}:${padded.drop(2).take(2)}"
+}

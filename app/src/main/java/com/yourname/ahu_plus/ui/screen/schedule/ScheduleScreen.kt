@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -44,15 +45,19 @@ fun ScheduleScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // 缓存极值,避免每帧 4 次 O(n) 遍历
+        val minWeek = remember(uiState.weekIndices) { uiState.weekIndices.minOrNull() ?: 1 }
+        val maxWeek = remember(uiState.weekIndices) { uiState.weekIndices.maxOrNull() ?: 20 }
+
         // ── 顶栏：返回 + 周导航 + 刷新（合并为一行）─────
         WeekHeader(
             selectedWeek = uiState.selectedWeek,
             currentWeek = uiState.currentWeek,
             studentName = uiState.studentName,
-            minWeek = uiState.weekIndices.minOrNull() ?: 1,
-            maxWeek = uiState.weekIndices.maxOrNull() ?: 20,
-            hasPrevious = uiState.selectedWeek > (uiState.weekIndices.minOrNull() ?: 1),
-            hasNext = uiState.selectedWeek < (uiState.weekIndices.maxOrNull() ?: 20),
+            minWeek = minWeek,
+            maxWeek = maxWeek,
+            hasPrevious = uiState.selectedWeek > minWeek,
+            hasNext = uiState.selectedWeek < maxWeek,
             onBack = onBack,
             onPrevious = { viewModel.onPreviousWeek() },
             onNext = { viewModel.onNextWeek() },

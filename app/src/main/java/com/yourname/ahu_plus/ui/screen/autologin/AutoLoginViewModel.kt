@@ -75,10 +75,8 @@ class AutoLoginViewModel(
     /** 用户主动退出登录,清除所有凭据和 session,跳回登录页 */
     fun logout() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                casAuthRepository.clearCookies()
-                sessionManager.clearAll()
-            }
+            casAuthRepository.clearCookies() // 纯内存操作,无需切换线程
+            sessionManager.clearAll()        // DataStore edit 自带调度器
             _uiState.value = AutoLoginState.NoCredentials
         }
     }

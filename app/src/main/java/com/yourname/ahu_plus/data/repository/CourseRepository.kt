@@ -1,8 +1,7 @@
 package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
-import com.google.gson.GsonBuilder
-import com.google.gson.Strictness
+import com.yourname.ahu_plus.data.GsonProvider
 import com.yourname.ahu_plus.data.model.jw.CourseActivity
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
@@ -11,8 +10,6 @@ import com.yourname.ahu_plus.data.model.jw.GetDataResponse
 import com.yourname.ahu_plus.data.model.jw.PrintDataResponse
 import com.yourname.ahu_plus.data.model.jw.ScheduleData
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -26,9 +23,7 @@ class CourseRepository(
     private val jwAuthRepository: JwAuthRepository,
 ) {
 
-    private val gson = GsonBuilder()
-        .setStrictness(Strictness.LENIENT)
-        .create()
+    private val gson = GsonProvider.instance
 
     // ── OkHttp(共享 JW 的 CookieJar,自动管理 cookie)──────
     // 不跟随重定向:让 ViewModel 决定如何处理 302

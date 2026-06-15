@@ -1,8 +1,7 @@
 package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
-import com.google.gson.GsonBuilder
-import com.google.gson.Strictness
+import com.yourname.ahu_plus.data.GsonProvider
 import com.yourname.ahu_plus.data.model.BillResponse
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import com.yourname.ahu_plus.util.DES
@@ -39,7 +38,7 @@ class YcardRepository(
         private const val YCARD_HOST = "ycard.ahu.edu.cn"
     }
 
-    private val gson = GsonBuilder().setStrictness(Strictness.LENIENT).create()
+    private val gson = GsonProvider.instance
 
     // ── Cookie 存储 ──────────────────────────────────
     private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()

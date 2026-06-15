@@ -100,7 +100,7 @@ object DES {
 
     // ── 密钥处理 ──────────────────────────────────────
 
-    /** 将密钥字符串转为 64 位块数组 */
+    /** 将密钥字符串转为 64 位块数组（保留 public 供测试使用） */
     fun getKeyBytes(key: String): List<IntArray> {
         val keyBytes = mutableListOf<IntArray>()
         val leng = key.length
@@ -118,18 +118,14 @@ object DES {
     // ── 字符串 ↔ 位数组 ───────────────────────────────
 
     /** 将长度 ≤ 4 的字符串转为 64 位数组（每字符 16 位，高位在前） */
-    fun strToBt(str: String): IntArray {
+    private fun strToBt(str: String): IntArray {
         val bt = IntArray(64)
         val leng = str.length
         if (leng < 4) {
             for (i in 0 until leng) {
                 val k = str[i].code
                 for (j in 0..15) {
-                    var pow = 1
-                    for (m in 15 downTo (j + 1)) {
-                        pow *= 2
-                    }
-                    bt[16 * i + j] = (k / pow) % 2
+                    bt[16 * i + j] = (k shr (15 - j)) and 1
                 }
             }
             for (p in leng until 4) {
@@ -141,11 +137,7 @@ object DES {
             for (i in 0..3) {
                 val k = str[i].code
                 for (j in 0..15) {
-                    var pow = 1
-                    for (m in 15 downTo (j + 1)) {
-                        pow *= 2
-                    }
-                    bt[16 * i + j] = (k / pow) % 2
+                    bt[16 * i + j] = (k shr (15 - j)) and 1
                 }
             }
         }
@@ -153,7 +145,7 @@ object DES {
     }
 
     /** 64 位数组 → 16 字符十六进制字符串 */
-    fun bt64ToHex(byteData: IntArray): String {
+    private fun bt64ToHex(byteData: IntArray): String {
         val hex = StringBuilder()
         for (i in 0..15) {
             val bt = StringBuilder()
@@ -166,7 +158,7 @@ object DES {
     }
 
     /** 4 位二进制字符串 → 1 字符十六进制 */
-    fun bt4ToHex(binary: String): String {
+    private fun bt4ToHex(binary: String): String {
         return when (binary) {
             "0000" -> "0"
             "0001" -> "1"
@@ -189,7 +181,7 @@ object DES {
     }
 
     /** 整数 0-15 → 4 位二进制字符串 */
-    fun getBoxBinary(i: Int): String {
+    private fun getBoxBinary(i: Int): String {
         return when (i) {
             0 -> "0000"
             1 -> "0001"
@@ -214,7 +206,7 @@ object DES {
     // ── DES 核心 ──────────────────────────────────────
 
     /** 单次 DES 加密 */
-    fun enc(dataByte: IntArray, keyByte: IntArray): IntArray {
+    private fun enc(dataByte: IntArray, keyByte: IntArray): IntArray {
         val keys = generateKeys(keyByte)
         val ipByte = initPermute(dataByte)
         val ipLeft = IntArray(32)
@@ -253,7 +245,7 @@ object DES {
     }
 
     /** 生成 16 轮子密钥 */
-    fun generateKeys(keyByte: IntArray): Array<IntArray> {
+    private fun generateKeys(keyByte: IntArray): Array<IntArray> {
         val key = IntArray(56)
         val keys = Array(16) { IntArray(48) }
         val loop = intArrayOf(1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1)
@@ -302,7 +294,7 @@ object DES {
     }
 
     /** 初始置换 IP */
-    fun initPermute(originalData: IntArray): IntArray {
+    private fun initPermute(originalData: IntArray): IntArray {
         val ipByte = IntArray(64)
         var m = 1
         var n = 0
@@ -318,7 +310,7 @@ object DES {
     }
 
     /** 扩展置换 E */
-    fun expandPermute(rightData: IntArray): IntArray {
+    private fun expandPermute(rightData: IntArray): IntArray {
         val epByte = IntArray(48)
         for (i in 0..7) {
             epByte[i * 6 + 0] = if (i == 0) rightData[31] else rightData[i * 4 - 1]
@@ -332,7 +324,7 @@ object DES {
     }
 
     /** 异或 */
-    fun xor(byteOne: IntArray, byteTwo: IntArray): IntArray {
+    private fun xor(byteOne: IntArray, byteTwo: IntArray): IntArray {
         val xorByte = IntArray(byteOne.size)
         for (i in byteOne.indices) {
             xorByte[i] = byteOne[i] xor byteTwo[i]
@@ -341,7 +333,7 @@ object DES {
     }
 
     /** S 盒置换 */
-    fun sBoxPermute(expandByte: IntArray): IntArray {
+    private fun sBoxPermute(expandByte: IntArray): IntArray {
         val sBoxByte = IntArray(32)
 
         val s1 = arrayOf(
@@ -419,7 +411,7 @@ object DES {
     }
 
     /** P 盒置换 */
-    fun pPermute(sBoxByte: IntArray): IntArray {
+    private fun pPermute(sBoxByte: IntArray): IntArray {
         val pBoxPermute = IntArray(32)
         pBoxPermute[0] = sBoxByte[15]; pBoxPermute[1] = sBoxByte[6]; pBoxPermute[2] = sBoxByte[19]
         pBoxPermute[3] = sBoxByte[20]; pBoxPermute[4] = sBoxByte[28]; pBoxPermute[5] = sBoxByte[11]
@@ -436,7 +428,7 @@ object DES {
     }
 
     /** 最终置换 FP (IP⁻¹) */
-    fun finallyPermute(endByte: IntArray): IntArray {
+    private fun finallyPermute(endByte: IntArray): IntArray {
         val fpByte = IntArray(64)
         fpByte[0] = endByte[39]; fpByte[1] = endByte[7]; fpByte[2] = endByte[47]
         fpByte[3] = endByte[15]; fpByte[4] = endByte[55]; fpByte[5] = endByte[23]

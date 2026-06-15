@@ -9,6 +9,8 @@ import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.SessionExpiredException
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,8 +30,20 @@ class HomeViewModel(
     init {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { ensureValidSession() }
-            loadBalance()
-            loadBills()
+            // 余额和账单访问不同的服务器,可并行加载
+            loadBalanceAndBills()
+        }
+    }
+
+    private fun loadBalanceAndBills() {
+        viewModelScope.launch {
+            coroutineScope {
+                val balanceJob = async { loadBalance() }
+                val billsJob = async { loadBills() }
+                // 等待两者都完成(任一失败不影响另一方)
+                balanceJob.await()
+                billsJob.await()
+            }
         }
     }
 
@@ -118,11 +132,7 @@ class HomeViewModel(
     }
 
     fun onRefresh() {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { ensureValidSession() }
-            loadBalance()
-            loadBills()
-        }
+        loadBalanceAndBills()
     }
 }
 

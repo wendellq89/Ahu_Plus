@@ -1,25 +1,21 @@
 package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
-import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
-import com.google.gson.Strictness
+import com.yourname.ahu_plus.data.GsonProvider
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
 
 class CardRepository(
     private val sessionManager: SessionManager,
     private val baseUrl: String = "https://adwmh.ahu.edu.cn",
     private val portalJsessionIdProvider: () -> String? = { null }
 ) {
-    private val gson = GsonBuilder()
-        .setStrictness(Strictness.LENIENT)
-        .create()
+    private val gson = GsonProvider.instance
 
     // adwmh 客户端(明文 HTTP,不需 trust-all)
     private val client: OkHttpClient = SecureHttpClientFactory.create(

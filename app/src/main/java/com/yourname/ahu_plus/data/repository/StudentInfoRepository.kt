@@ -1,9 +1,8 @@
 package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
-import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
-import com.google.gson.Strictness
+import com.yourname.ahu_plus.data.GsonProvider
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.StudentInfo
 import com.yourname.ahu_plus.data.model.StudentInfoField
@@ -18,9 +17,7 @@ class StudentInfoRepository(
     private val casAuthRepository: CasAuthRepository,
     private val studentTableUrl: String = STUDENT_TABLE_URL
 ) {
-    private val gson = GsonBuilder()
-        .setStrictness(Strictness.LENIENT)
-        .create()
+    private val gson = GsonProvider.instance
 
     private val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = casAuthRepository.getCookieJar(),

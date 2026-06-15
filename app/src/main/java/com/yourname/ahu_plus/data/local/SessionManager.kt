@@ -190,11 +190,26 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     /** 清除所有数据(session + 凭据 + JW session) — 用户主动退出登录时调用 */
     suspend fun clearAll() {
-        clearSession()
-        clearJwSession()
-        clearCredentials()
-        clearMarketApiIdentity()
-        clearStudentInfoJson()
+        // 先清除内存缓存
+        cachedSessionId = null
+        cachedJwSessionId = null
+        cachedJwPstSid = null
+        cachedUsername = null
+        cachedPassword = null
+        cachedMarketApiIdentity = null
+        cachedStudentInfoJson = null
+        cachedStudentInfoUpdatedAt = 0L
+        // 一次 edit 完成所有删除，避免多次 DataStore 序列化/写入
+        appDataStore.dataStore.edit { preferences ->
+            preferences.remove(SESSION_KEY)
+            preferences.remove(JW_SESSION_KEY)
+            preferences.remove(JW_PST_SID_KEY)
+            preferences.remove(USERNAME_KEY)
+            preferences.remove(PASSWORD_KEY)
+            preferences.remove(MARKET_API_IDENTITY_KEY)
+            preferences.remove(STUDENT_INFO_KEY)
+            preferences.remove(STUDENT_INFO_UPDATED_AT_KEY)
+        }
         Log.i(TAG, "所有会话和凭据已清除")
     }
 
