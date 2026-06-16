@@ -106,6 +106,52 @@ data class CourseUnit(
 /**
  * 统一展示模型 —— 供 WeekGrid UI 使用
  */
+/**
+ * 用户自行添加的课表条目（加课 / 加安排两种模式）。
+ *
+ * [type] "course" = 加课（如自习课），"arrangement" = 加安排（如临时班会）
+ * [id] 为 UUID 字符串以区分于教务系统的 Long 型 lessonId
+ */
+data class UserScheduleItem(
+    val id: String,
+    val name: String,
+    val type: String,
+    val weekday: Int,
+    val startUnit: Int,
+    val endUnit: Int,
+    val weeks: List<Int>,
+    val room: String,
+    val teacher: String,
+    val note: String,
+    val createdAt: Long = System.currentTimeMillis(),
+) {
+    /** 转换为 [CourseDisplayItem] 以便在 WeekGrid 中统一渲染。 */
+    fun toDisplayItem(): CourseDisplayItem = CourseDisplayItem(
+        lessonId = -(id.hashCode().toLong()), // 负数区分自定义条目
+        courseName = name,
+        courseCode = null,
+        teacherNames = teacher,
+        room = room.ifBlank { note.ifBlank { when (type) { "arrangement" -> "安排" else -> "自定义" } } },
+        weekday = weekday,
+        startUnit = startUnit,
+        endUnit = endUnit,
+        weekIndexes = weeks,
+        weeksStr = weeks.sorted().joinToString(", "),
+        startTime = null,
+        endTime = null,
+        courseType = when (type) { "course" -> "自定义课程" else -> "临时安排" },
+        credits = null,
+        campus = null,
+        colorIndex = Math.abs(name.hashCode()) % 10,
+        lessonDetail = null,
+    )
+
+    companion object {
+        val TYPE_COURSE = "course"
+        val TYPE_ARRANGEMENT = "arrangement"
+    }
+}
+
 data class CourseDisplayItem(
     val lessonId: Long,
     val courseName: String,

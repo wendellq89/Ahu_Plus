@@ -55,7 +55,6 @@ class AutoLoginViewModel(
                         ycardRepository.login(username, password)
                     }
                     ycardResult.onFailure {
-                        // 仅记录日志,不阻塞
                         android.util.Log.w("AutoLogin", "ycard 登录失败: ${it.message}")
                     }
                     _uiState.value = AutoLoginState.Success
@@ -76,7 +75,7 @@ class AutoLoginViewModel(
     fun logout() {
         viewModelScope.launch {
             casAuthRepository.clearCookies() // 纯内存操作,无需切换线程
-            sessionManager.clearAll()        // DataStore edit 自带调度器
+            sessionManager.clearAuthData()   // DataStore edit 自带调度器
             _uiState.value = AutoLoginState.NoCredentials
         }
     }

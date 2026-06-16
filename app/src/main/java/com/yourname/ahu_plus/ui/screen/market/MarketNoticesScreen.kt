@@ -29,8 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -45,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.MarketNotice
 import com.yourname.ahu_plus.data.model.MarketNoticeTopic
 import com.yourname.ahu_plus.data.model.MarketTopic
+import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.theme.MarketColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,7 +70,7 @@ internal fun MarketNoticesScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            AhuTopAppBar(
                 title = {
                     val countSuffix = if (uiState.noticesCount > 0) "（${uiState.noticesCount}）" else ""
                     Text("消息$countSuffix")
@@ -85,10 +84,7 @@ internal fun MarketNoticesScreen(
                     IconButton(onClick = onRefresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background

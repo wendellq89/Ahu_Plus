@@ -2,7 +2,17 @@ package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
 import com.yourname.ahu_plus.data.GsonProvider
+import com.yourname.ahu_plus.data.model.BathroomBalanceData
+import com.yourname.ahu_plus.data.model.BathroomBalanceResponse
+import com.yourname.ahu_plus.data.model.BillRecord
 import com.yourname.ahu_plus.data.model.BillResponse
+import com.yourname.ahu_plus.data.model.ElectricityBalanceResponse
+import com.yourname.ahu_plus.data.model.ElectricityBillResponse
+import com.yourname.ahu_plus.data.model.ElectricityDailyRecord
+import com.yourname.ahu_plus.data.model.ElectricityUiData
+import com.yourname.ahu_plus.data.model.InternetBalanceData
+import com.yourname.ahu_plus.data.model.InternetBalanceResponse
+import com.yourname.ahu_plus.data.model.InternetBillResponse
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import com.yourname.ahu_plus.util.DES
 import okhttp3.Cookie
@@ -148,6 +158,298 @@ class YcardRepository(
             }
         } catch (e: Exception) {
             Log.e(TAG, "账单查询错误", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 查询全量一卡通账单（遍历所有分页）。
+     *
+     * @param pageSize 每页条数，默认 50
+     * @return 合并后的全部账单记录列表
+     */
+    suspend fun getAllBills(pageSize: Int = 50): Result<List<BillRecord>> {
+        return try {
+            // 第一页
+            val firstPage = getBills(current = 1, size = pageSize).getOrThrow()
+            val data = firstPage.data ?: return Result.success(emptyList<BillRecord>())
+            val allRecords = data.records.toMutableList()
+            val totalPages = data.pages
+
+            // 遍历剩余页
+            for (page in 2..totalPages) {
+                Log.d(TAG, "账单分页: $page/$totalPages")
+                val pageResult = getBills(current = page, size = pageSize).getOrThrow()
+                pageResult.data?.records?.let { allRecords.addAll(it) }
+            }
+
+            Log.i(TAG, "账单全量加载完成: ${allRecords.size} 条, $totalPages 页")
+            Result.success(allRecords)
+        } catch (e: Exception) {
+            Log.e(TAG, "全量账单查询错误", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 查询浴室余额 (ycard.ahu.edu.cn/charge/feeitem/getThirdData)。
+     *
+     * 复用 ycard JWT 认证,通过手机号查询对应的浴室水控账户余额。
+     *
+     * @param phone 绑定的手机号(11 位)
+     * @return [BathroomBalanceData] 包含现金余额/赠送余额/项目名称等字段
+     */
+    suspend fun getBathroomBalance(phone: String): Result<BathroomBalanceData> {
+        return try {
+            val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
+
+            val formBody = FormBody.Builder()
+                .add("feeitemid", "430")
+                .add("type", "IEC")
+                .add("level", "1")
+                .add("telPhone", phone)
+                .build()
+
+            val request = Request.Builder()
+                .url("$YCARD_BASE/charge/feeitem/getThirdData")
+                .header("User-Agent", UA)
+                .header("synjones-auth", "bearer $jwt")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Origin", YCARD_BASE)
+                .header("Referer", "$YCARD_BASE/charge-app/")
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .post(formBody)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                val code = response.code
+                Log.e(TAG, "浴室余额 API HTTP $code")
+
+                if (code != 200) {
+                    return Result.failure(Exception("浴室余额查询失败 HTTP $code"))
+                }
+
+                val resp = gson.fromJson(body, BathroomBalanceResponse::class.java)
+                val data = resp.map?.data
+                    ?: return Result.failure(Exception("浴室余额数据为空: ${body.take(200)}"))
+
+                if (resp.code != 200) {
+                    return Result.failure(Exception(resp.msg.ifBlank { "浴室余额查询失败" }))
+                }
+
+                Result.success(data)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "浴室余额查询错误", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 查询电费余额 (空调/照明等),与浴室共用同一端点但参数不同。
+     *
+     * @param feeitemid 费用项 ID (408=空调, 428=照明)
+     * @param building  楼栋 (格式 "code&name",如 "57&榴园二号楼空调")
+     * @param floor     楼层 (格式 "code&name",如 "228&五层")
+     * @param room      房间 (格式 "code&name",如 "2514&2514")
+     * @param level     层级,电费固定为 "3"
+     */
+    suspend fun getElectricityBalance(
+        feeitemid: String,
+        building: String,
+        floor: String,
+        room: String,
+        level: String = "3"
+    ): Result<ElectricityUiData> {
+        return try {
+            val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
+
+            val formBody = FormBody.Builder()
+                .add("feeitemid", feeitemid)
+                .add("type", "IEC")
+                .add("level", level)
+                .add("building", building)
+                .add("floor", floor)
+                .add("room", room)
+                .build()
+
+            val request = Request.Builder()
+                .url("$YCARD_BASE/charge/feeitem/getThirdData")
+                .header("User-Agent", UA)
+                .header("synjones-auth", "bearer $jwt")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Origin", YCARD_BASE)
+                .header("Referer", "$YCARD_BASE/charge-app/")
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .post(formBody)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                val code = response.code
+                Log.e(TAG, "电费 API feeitemid=$feeitemid HTTP $code")
+
+                if (code != 200) {
+                    return Result.failure(Exception("电费查询失败 HTTP $code"))
+                }
+
+                val resp = gson.fromJson(body, ElectricityBalanceResponse::class.java)
+                val map = resp.map
+                    ?: return Result.failure(Exception("电费数据为空: ${body.take(200)}"))
+
+                if (resp.code != 200) {
+                    return Result.failure(Exception(resp.msg.ifBlank { "电费查询失败" }))
+                }
+
+                val uiData = map.toUiData()
+                Result.success(uiData)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "电费查询错误", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 查询网费余额 (feeitemid=431, level=0,无需额外参数,账号从 JWT 中自动识别)。
+     */
+    suspend fun getInternetBalance(): Result<InternetBalanceData> {
+        return try {
+            val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
+
+            val formBody = FormBody.Builder()
+                .add("feeitemid", "431")
+                .add("type", "IEC")
+                .add("level", "0")
+                .build()
+
+            val request = Request.Builder()
+                .url("$YCARD_BASE/charge/feeitem/getThirdData")
+                .header("User-Agent", UA)
+                .header("synjones-auth", "bearer $jwt")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Origin", YCARD_BASE)
+                .header("Referer", "$YCARD_BASE/charge-app/")
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .post(formBody)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                val code = response.code
+                Log.e(TAG, "网费余额 API HTTP $code")
+
+                if (code != 200) {
+                    return Result.failure(Exception("网费查询失败 HTTP $code"))
+                }
+
+                val resp = gson.fromJson(body, InternetBalanceResponse::class.java)
+                val data = resp.map?.data
+                    ?: return Result.failure(Exception("网费数据为空: ${body.take(200)}"))
+
+                if (resp.code != 200) {
+                    return Result.failure(Exception(resp.msg.ifBlank { "网费查询失败" }))
+                }
+
+                Result.success(data)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "网费查询错误", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 查询网费充值账单。
+     *
+     * @param page 页码(从 0 开始)
+     * @param row  每页条数,默认 10
+     */
+    suspend fun getInternetBills(page: Int = 0, row: Int = 20): Result<InternetBillResponse> {
+        return try {
+            val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
+
+            val request = Request.Builder()
+                .url("$YCARD_BASE/charge/turnover/app_account?feeitemid=431&app_row=$row&app_page=$page")
+                .header("User-Agent", UA)
+                .header("synjones-auth", "bearer $jwt")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Referer", "$YCARD_BASE/charge-app/")
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                val code = response.code
+                Log.e(TAG, "网费账单 API HTTP $code")
+
+                if (code != 200) {
+                    return Result.failure(Exception("网费账单查询失败 HTTP $code"))
+                }
+
+                val billResp = gson.fromJson(body, InternetBillResponse::class.java)
+                Result.success(billResp)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "网费账单查询错误", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 查询电费日用明细 (空调/照明)。
+     *
+     * @param feeitemid 费用项 ID (408=空调, 428=照明)
+     * @param building  楼栋 (code&name 格式)
+     * @param floor     楼层 (code&name 格式)
+     * @param room      房间 (code&name 格式)
+     * @param startDate 开始日期 (yyyy-MM-dd)
+     * @param endDate   结束日期 (yyyy-MM-dd)
+     */
+    suspend fun getElectricityBills(
+        feeitemid: String,
+        building: String,
+        floor: String,
+        room: String,
+        startDate: String,
+        endDate: String
+    ): Result<List<ElectricityDailyRecord>> {
+        return try {
+            val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
+
+            // URL 编码 building/floor/room 中的 & 符号
+            val encodedBuilding = java.net.URLEncoder.encode(building, "UTF-8")
+            val encodedFloor = java.net.URLEncoder.encode(floor, "UTF-8")
+            val encodedRoom = java.net.URLEncoder.encode(room, "UTF-8")
+
+            val request = Request.Builder()
+                .url("$YCARD_BASE/charge/feeitem/getRechargeRecord" +
+                    "?feeitemid=$feeitemid&startdate=$startDate&enddate=$endDate" +
+                    "&building=$encodedBuilding&floor=$encodedFloor&room=$encodedRoom")
+                .header("User-Agent", UA)
+                .header("synjones-auth", "bearer $jwt")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Referer", "$YCARD_BASE/charge-app/")
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                val code = response.code
+                Log.e(TAG, "电费账单 API feeitemid=$feeitemid HTTP $code")
+
+                if (code != 200) {
+                    return Result.failure(Exception("电费账单查询失败 HTTP $code"))
+                }
+
+                val billResp = gson.fromJson(body, ElectricityBillResponse::class.java)
+                Result.success(billResp.data)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "电费账单查询错误", e)
             Result.failure(e)
         }
     }

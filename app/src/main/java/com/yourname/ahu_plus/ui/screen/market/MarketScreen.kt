@@ -64,6 +64,7 @@ fun MarketScreen(viewModel: MarketViewModel) {
                 onRefresh = viewModel::retryDetail,
                 onLoadMoreComments = viewModel::loadMoreComments,
                 onLoadMoreReplies = viewModel::loadMoreReplies,
+                onLoadFullCommentsForExport = viewModel::loadFullCommentsForExport,
                 onCommentDraftChanged = viewModel::onCommentDraftChanged,
                 onCommentSubmit = viewModel::submitComment,
                 onCancelReply = viewModel::cancelReply,

@@ -4,10 +4,12 @@ import android.app.Application
 import com.yourname.ahu_plus.data.local.AppDataStore
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
+import com.yourname.ahu_plus.data.repository.AttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
 import com.yourname.ahu_plus.data.repository.ExamRepository
+import com.yourname.ahu_plus.data.repository.FinanceRepository
 import com.yourname.ahu_plus.data.repository.GradeRepository
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
@@ -42,7 +44,10 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var examRepository: ExamRepository
         private set
-
+    lateinit var financeRepository: FinanceRepository
+        private set
+    lateinit var attendanceRepository: AttendanceRepository
+        private set
     override fun onCreate() {
         super.onCreate()
 
@@ -60,7 +65,6 @@ class AhuPlusApplication : Application() {
         // ycard 复用 CasAuthRepository 的 CASTGC,避免重复完整登录
         ycardRepository = YcardRepository(casAuthRepository)
         cardRepository = CardRepository(
-            sessionManager,
             portalJsessionIdProvider = { casAuthRepository.getJsessionid() }
         )
         marketRepository = MarketRepository(sessionManager)
@@ -69,6 +73,9 @@ class AhuPlusApplication : Application() {
         // 成绩 / 考试 复用 JwAuthRepository 的 CookieJar
         gradeRepository = GradeRepository(jwAuthRepository)
         examRepository = ExamRepository(jwAuthRepository)
+        // 财务汇总 / 考勤缺勤 复用 studentInfoRepository 的 SSO 会话 (tp_ep_stu)
+        financeRepository = FinanceRepository(sessionManager, casAuthRepository)
+        attendanceRepository = AttendanceRepository(sessionManager, casAuthRepository)
     }
 
     /**
@@ -82,6 +89,6 @@ class AhuPlusApplication : Application() {
         casAuthRepository.clearCookies()
         jwAuthRepository.clearCookies()
         ycardRepository.clearCookies()
-        sessionManager.clearAll()
+        sessionManager.clearAuthData()
     }
 }

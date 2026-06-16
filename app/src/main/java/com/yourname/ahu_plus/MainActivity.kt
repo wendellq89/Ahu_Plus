@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
                     courseNoteRepository = app.courseNoteRepository,
                     gradeRepository = app.gradeRepository,
                     examRepository = app.examRepository,
+                    financeRepository = app.financeRepository,
+                    attendanceRepository = app.attendanceRepository,
                     themeMode = themeMode,
                     onThemeModeChange = { newThemeMode ->
                         coroutineScope.launch {

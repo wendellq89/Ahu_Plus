@@ -232,10 +232,11 @@ class CasAuthRepository(
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful && body.contains("\"code\"")) {
                     Result.success(Unit)
-                } else if (response.code == 302 || body.contains("cas/login")) {
+                } else if (response.code == 302 || body.contains("name=\"lt\"")) {
+                    // 仅 CAS 登录表单(含 name="lt")才是真过期；HTML 中引用 "cas/login" 链接不算
                     Result.failure(Exception("JSESSIONID 失效"))
                 } else {
-                    // 其他情况:乐观认为有效,让真正的 API 调用再判断
+                    // 其他情况(VPN拦截页/门户首页/网络错误):乐观认为有效,让真正的 API 调用再判断
                     Result.success(Unit)
                 }
             }

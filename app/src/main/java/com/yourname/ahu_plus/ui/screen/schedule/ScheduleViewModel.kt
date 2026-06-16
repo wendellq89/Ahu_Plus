@@ -9,6 +9,7 @@ import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.GetDataLesson
 import com.yourname.ahu_plus.data.model.jw.SemesterInfo
+import com.yourname.ahu_plus.data.model.jw.UserScheduleItem
 import com.yourname.ahu_plus.data.repository.CourseRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 class ScheduleViewModel(
     private val jwAuthRepository: JwAuthRepository,
@@ -27,6 +29,7 @@ class ScheduleViewModel(
     private val sessionManager: SessionManager? = null,
 ) : ViewModel() {
 
+    private val gson = com.yourname.ahu_plus.data.GsonProvider.instance
     private val _uiState = MutableStateFlow(ScheduleUiState())
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
@@ -42,16 +45,133 @@ class ScheduleViewModel(
                 )
             }
         }
+        // 优先加载本地缓存，再尝试静默网络刷新
         viewModelScope.launch {
-            loadScheduleData()
+            // 先加载用户自定义课表
+            loadUserItems()
+            val cached = loadFromCache()
+            if (cached) {
+                // 有缓存数据 → 后台静默刷新
+                launch { loadScheduleData(isRefresh = true) }
+            } else {
+                // 无缓存 → 主动加载
+                loadScheduleData(isRefresh = false)
+            }
         }
+    }
+
+    /** 加载用户自定义课表条目 */
+    private fun loadUserItems() {
+        val sm = sessionManager ?: return
+        val json = sm.getUserScheduleJson() ?: return
+        try {
+            val items = gson.fromJson(json, Array<UserScheduleItem>::class.java).toList()
+            _uiState.update { it.copy(userScheduleItems = items) }
+        } catch (_: Exception) {}
+    }
+
+    /** 持久化用户自定义课表条目 */
+    private fun saveUserItems() {
+        val sm = sessionManager ?: return
+        viewModelScope.launch {
+            try {
+                val json = gson.toJson(_uiState.value.userScheduleItems)
+                sm.saveUserScheduleJson(json)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /** 添加用户自定义课表条目 */
+    fun addUserScheduleItem(item: UserScheduleItem) {
+        _uiState.update {
+            it.copy(userScheduleItems = it.userScheduleItems + item)
+        }
+        saveUserItems()
+        rebuildDisplayItems()
+    }
+
+    /** 删除用户自定义课表条目 */
+    fun removeUserScheduleItem(id: String) {
+        _uiState.update {
+            it.copy(userScheduleItems = it.userScheduleItems.filter { i -> i.id != id })
+        }
+        saveUserItems()
+        rebuildDisplayItems()
+    }
+
+    fun onToggleAddCourse() {
+        _uiState.update { it.copy(showAddCourse = !it.showAddCourse) }
+    }
+
+    /** 从 SessionManager 恢复已缓存的课表 JSON */
+    private suspend fun loadFromCache(): Boolean {
+        val sm = sessionManager ?: return false
+        val json = sm.getScheduleJson() ?: return false
+        return try {
+            withContext(Dispatchers.IO) {
+                val data = gson
+                    .fromJson(json, com.yourname.ahu_plus.data.model.jw.ScheduleData::class.java)
+                val displayItems = buildDisplayItems(
+                    activities = data.activities,
+                    selectedWeek = data.currentWeek,
+                    lessons = data.lessons
+                )
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = null,
+                        studentName = data.studentName,
+                        className = data.className,
+                        department = data.department,
+                        credits = data.credits,
+                        allActivities = data.activities,
+                        displayItems = displayItems,
+                        unitTimes = data.unitTimes,
+                        semester = data.semester,
+                        currentWeek = data.currentWeek,
+                        selectedWeek = data.currentWeek,
+                        weekIndices = data.weekIndices,
+                        lessons = data.lessons,
+                    )
+                }
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** 合并教务课程与用户自定义条目的 displayItems */
+    private fun buildDisplayItems(
+        activities: List<CourseActivity>,
+        selectedWeek: Int,
+        lessons: List<GetDataLesson>?
+    ): List<CourseDisplayItem> {
+        val systemItems = CourseRepository.toDisplayItems(activities, selectedWeek, lessons)
+        val userItems = _uiState.value.userScheduleItems
+            .filter { it.weeks.contains(selectedWeek) }
+            .map { it.toDisplayItem() }
+        return (systemItems + userItems).sortedWith(compareBy({ it.weekday }, { it.startUnit }))
+    }
+
+    private fun rebuildDisplayItems() {
+        val data = _uiState.value
+        val items = buildDisplayItems(
+            activities = data.allActivities,
+            selectedWeek = data.selectedWeek,
+            lessons = data.lessons
+        )
+        _uiState.update { it.copy(displayItems = items) }
     }
 
     /**
      * 加载本学期课表。
+     * @param isRefresh true=静默刷新(不显示 loading)，false=主动加载
      */
-    private suspend fun loadScheduleData() {
-        _uiState.update { it.copy(isLoading = true, error = null) }
+    private suspend fun loadScheduleData(isRefresh: Boolean = false) {
+        if (!isRefresh) {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+        }
         val wasLoaded = _uiState.value.allActivities.isNotEmpty()
         try {
             withContext(Dispatchers.IO) {
@@ -61,9 +181,9 @@ class ScheduleViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            // 仅当本地无数据时才触发 needsLogin，避免刷新时跳转登录页
+                            // 仅当本地无数据时才触发 needsLogin
                             needsLogin = !wasLoaded,
-                            error = "教务处认证失败: ${authResult.exceptionOrNull()?.message}"
+                            error = if (!wasLoaded) "教务处认证失败: ${authResult.exceptionOrNull()?.message}" else null
                         )
                     }
                     return@withContext
@@ -73,15 +193,25 @@ class ScheduleViewModel(
                 val result = courseRepository.getSchedule()
                 result.fold(
                     onSuccess = { data ->
-                        val displayItems = CourseRepository.toDisplayItems(
+                        // 序列化并缓存到本地
+                        val sm = sessionManager
+                        if (sm != null) {
+                            try {
+                                val json = com.yourname.ahu_plus.data.GsonProvider.instance.toJson(data)
+                                sm.saveScheduleJson(json)
+                            } catch (_: Exception) { /* 缓存失败不影响 UI */ }
+                        }
+
+                        val displayItems = buildDisplayItems(
                             activities = data.activities,
                             selectedWeek = data.currentWeek,
-                            getDataLessons = data.lessons
+                            lessons = data.lessons
                         )
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
                                 error = null,
+                                needsLogin = false,
                                 studentName = data.studentName,
                                 className = data.className,
                                 department = data.department,
@@ -99,14 +229,20 @@ class ScheduleViewModel(
                     },
                     onFailure = { e ->
                         _uiState.update {
-                            it.copy(isLoading = false, error = "课表加载失败: ${e.message}")
+                            it.copy(
+                                isLoading = false,
+                                error = if (!wasLoaded) "课表加载失败: ${e.message}" else it.error
+                            )
                         }
                     }
                 )
             }
         } catch (e: Exception) {
             _uiState.update {
-                it.copy(isLoading = false, error = "未知错误: ${e.message}")
+                it.copy(
+                    isLoading = false,
+                    error = if (!wasLoaded) "未知错误: ${e.message}" else it.error
+                )
             }
         }
     }
@@ -167,10 +303,10 @@ class ScheduleViewModel(
 
     private fun setSelectedWeek(week: Int) {
         val data = _uiState.value
-        val items = CourseRepository.toDisplayItems(
+        val items = buildDisplayItems(
             activities = data.allActivities,
             selectedWeek = week,
-            getDataLessons = data.lessons
+            lessons = data.lessons
         )
         _uiState.update { it.copy(selectedWeek = week, displayItems = items) }
     }
@@ -235,6 +371,10 @@ data class ScheduleUiState(
 
     /** 当前展示的课程详情 (null 表示 BottomSheet 不显示) */
     val selectedCourseDetail: CourseDetailUiModel? = null,
+
+    // ── 用户自定义课表 ──────────────────────────────
+    val userScheduleItems: List<UserScheduleItem> = emptyList(),
+    val showAddCourse: Boolean = false,
 
     // ── 课表显示设置 ─────────────────────────────────
     val colWidthDp: Float = 64f,

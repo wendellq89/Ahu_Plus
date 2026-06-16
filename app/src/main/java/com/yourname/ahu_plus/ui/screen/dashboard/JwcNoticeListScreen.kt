@@ -36,8 +36,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -53,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.JwcNotice
+import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.util.BrowserOpener
 import org.json.JSONArray
 
@@ -67,7 +66,7 @@ fun JwcNoticeListScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            AhuTopAppBar(
                 title = { Text("通知公告") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -78,10 +77,7 @@ fun JwcNoticeListScreen(
                     IconButton(onClick = viewModel::loadFirstPage) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background

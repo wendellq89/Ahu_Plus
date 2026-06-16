@@ -146,15 +146,33 @@ class JwAuthRepository(
         Log.e(TAG, "JW SSO → 302 Location: ${location1.take(80)}...")
 
         if (!location1.contains("cas/login")) {
-            // 可能已经有有效 session,直接是 JW 首页
-            if (jwSsoResponse.code == 200) {
+            // 可能已经有有效 session：302 到 JW 首页，或 200 返回页面
+            if (jwSsoResponse.code == 200 || jwSsoResponse.code in 300..399) {
                 val session = jwCookieStore[JW_HOST]?.find { it.name == "SESSION" }?.value
                 if (session != null) {
+                    Log.e(TAG, "JW 已有有效 session (HTTP ${jwSsoResponse.code} → ${location1.take(60)})")
                     persistSession(session)
+                    sessionManager.saveJwSession(session, "")
                     return
                 }
+                // 302 但没有 SESSION cookie —— 跟随重定向获取
+                if (jwSsoResponse.code in 300..399) {
+                    val redirectClient = client.newBuilder().followRedirects(true).build()
+                    redirectClient.newCall(Request.Builder()
+                        .url(JW_SSO)
+                        .header("User-Agent", UA)
+                        .build()).execute().use {
+                            val session2 = jwCookieStore[JW_HOST]?.find { it.name == "SESSION" }?.value
+                            if (session2 != null) {
+                                Log.e(TAG, "跟随 JW 重定向后获取到 session: ${session2.take(16)}...")
+                                persistSession(session2)
+                                sessionManager.saveJwSession(session2, "")
+                                return
+                            }
+                        }
+                }
             }
-            throw JwAuthException("JW SSO 未返回 CAS 重定向: HTTP ${jwSsoResponse.code}")
+            throw JwAuthException("JW SSO 未返回 CAS 重定向且无 session: HTTP ${jwSsoResponse.code}")
         }
 
         // Step B: 读取 CASTGC,带到 CAS 请求

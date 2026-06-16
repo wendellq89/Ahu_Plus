@@ -23,8 +23,10 @@ data class Exam(
     val displayCourse: String get() = courseName
     val displayTime: String get() = examTime
     val displayLocation: String
-        get() = listOf(campus, building, room)
-            .filter { it.isNotBlank() }
+        get() = listOfNotNull(
+                campus?.replace("校区", "")?.takeIf { it.isNotBlank() },
+                room?.takeIf { it.isNotBlank() } ?: building
+            )
             .joinToString(" · ")
             .ifBlank { "地点待定" }
     val displayType: String get() = examType.ifBlank { "考试" }

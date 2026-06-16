@@ -110,13 +110,32 @@ object StudentInfoCodeLookup {
     )
 
     /**
-     * 安徽大学宿舍楼栋代码(待与学校核实/补充)
+     * 安徽大学宿舍楼栋代码。
      *
-     * 磬苑校区研究生公寓常见命名:桂园、桔园、桃园、松园、梅园、竹园、蕙园、兰园 等。
-     * 楼栋编号 56 具体对应哪一栋需要核实 —— 命中失败时回退原始码。
+     * 磬苑校区宿舍常见命名:榴园、桂园、桔园、桃园、松园、梅园、竹园、蕙园、兰园、杏园、枣园、枫园、槐园、李园 等。
+     * 龙河校区: 对应数字编号。
+     * 码值来源: getList 返回的 JZWH_CPCODE / JZWH 成对字段，此处作为本地回退。
      */
     private val buildingCodes: Map<String, String> = mapOf(
-        // 例:"56" to "桂园 5 号楼",
+        "56" to "榴园",
+        "51" to "桂园",
+        "52" to "桔园",
+        "53" to "桃园",
+        "54" to "松园",
+        "55" to "梅园",
+        // 磬苑校区其他楼栋（待补充）
+        "57" to "竹园",
+        "58" to "蕙园",
+        "59" to "兰园",
+        "60" to "杏园",
+        "61" to "枣园",
+        "62" to "枫园",
+        "63" to "槐园",
+        "64" to "李园",
+        // 龙河校区
+        "201" to "龙河 1 号楼",
+        "202" to "龙河 2 号楼",
+        "203" to "龙河 3 号楼",
     )
 
     private val nationCodes: Map<String, String> = mapOf(
@@ -135,6 +154,97 @@ object StudentInfoCodeLookup {
         "49" to "京族", "50" to "塔塔尔族", "51" to "独龙族", "52" to "鄂伦春族",
         "53" to "赫哲族", "54" to "门巴族", "55" to "珞巴族", "56" to "基诺族",
         "97" to "其他", "98" to "外国血统中国籍人士"
+    )
+
+    // ── 教育相关码表 ────────────────────────────────────
+
+    /** 是否在校 (getPageGrid: SFZX) */
+    private val inSchoolCodes: Map<String, String> = mapOf(
+        "1" to "在校",
+        "0" to "毕业"
+    )
+
+    /** 是否在籍 (getPageGrid: SFZJ) */
+    private val registeredCodes: Map<String, String> = mapOf(
+        "1" to "在籍",
+        "0" to "毕业"
+    )
+
+    /** 培养层次码 (getPageGrid: PYCCM, 表 ICDC_DM.XS_PYCC) —— 本地回退 */
+    private val educationLevelCodes: Map<String, String> = mapOf(
+        "1" to "博士研究生",
+        "2" to "硕士研究生",
+        "3" to "本科",
+        "4" to "专科",
+        "5" to "专升本"
+    )
+
+    // ── fetchUserInfo() 英文字段 → 中文标签映射 ──────────
+
+    /**
+     * /ep/userHome/getUserInfo 返回的 JSON key → 中文展示标签。
+     * 未在此映射中的 key 按原样显示（首字母大写等回退）。
+     */
+    val userInfoFieldLabelMap: Map<String, String> = mapOf(
+        "USER_NAME" to "姓名",
+        "UNIT_NAME" to "培养单位",
+        "CODENAME" to "性别",
+        "SEX" to "性别",
+        "SEX_CODE" to "性别",
+        "XB" to "性别",
+        "NATION" to "民族",
+        "NATION_CODE" to "民族",
+        "MZ" to "民族",
+        "ID_NUMBER" to "身份证号",
+        "SFZH" to "身份证号",
+        "ID_TYPE" to "身份证件类型",
+        "MOBILE" to "手机号",
+        "PHONE" to "手机号",
+        "SJHM" to "手机号",
+        "POLITICAL_STATUS" to "政治面貌",
+        "ZZMM" to "政治面貌",
+        "MARITAL_STATUS" to "婚姻状况",
+        "HYZK" to "婚姻状况",
+        "EDUCATION" to "学历",
+        "XL" to "学历",
+        "DEGREE" to "学位",
+        "XW" to "学位",
+        "HEALTH" to "健康状况",
+        "JKZK" to "健康状况",
+        "NATIVE_PLACE" to "籍贯",
+        "JG" to "籍贯",
+        "BIRTH_DATE" to "出生日期",
+        "CSRQ" to "出生日期",
+        "STUDENT_ID" to "学号",
+        "XH" to "学号",
+        "GRADE" to "年级",
+        "NJ" to "年级",
+        "CLASS_NAME" to "班级",
+        "BJ" to "班级",
+        "MAJOR_NAME" to "专业",
+        "ZY" to "专业",
+        "DEPARTMENT" to "院系",
+        "YX" to "院系",
+        "CAMPUS" to "校区",
+        "XQ" to "校区",
+        "DORM_BUILDING" to "楼栋",
+        "SSFJH" to "宿舍房间",
+        "EMAIL" to "电子邮箱",
+        "ADDRESS" to "通讯地址",
+        "POSTAL_CODE" to "邮政编码",
+        "BANK_CARD" to "银行卡号",
+        "BIRTHDAY" to "出生日期",
+        "ONE_CARD" to "校园卡号",
+    )
+
+    /**
+     * fetchUserInfo 中应跳过的 JSON key。
+     * 这些是冗余内部字段，其信息已由其他 key 提供解析后的值。
+     */
+    val skipUserInfoKeys: Set<String> = setOf(
+        "USER_SEX",   // CODENAME 已提供解析后的性别
+        "USER_UID",   // 内部 ID
+        "UNIT_UID",   // UNIT_NAME 已提供解析后的单位名
     )
 
     private val fieldsToHide: Set<String> = setOf(
@@ -161,25 +271,48 @@ object StudentInfoCodeLookup {
 
     private val codeFieldSpecs: List<CodeSpec> = listOf(
         CodeSpec("endsWith", "性别码", "性别", genderCodes),
+        CodeSpec("exact", "性别", "性别", genderCodes),
         CodeSpec("endsWith", "民族码", "民族", nationCodes),
+        CodeSpec("exact", "民族", "民族", nationCodes),
         CodeSpec("endsWith", "政治面貌码", "政治面貌", politicalStatusCodes),
+        CodeSpec("exact", "政治面貌", "政治面貌", politicalStatusCodes),
         CodeSpec("endsWith", "身份证件类型码", "身份证件类型", idTypeCodes),
         CodeSpec("endsWith", "证件类型码", "证件类型", idTypeCodes),
-        CodeSpec("endsWith", "婚姻状况码", "婚姻状况", maritalStatusCodes),
-        CodeSpec("endsWith", "学历码", "学历", educationCodes),
-        CodeSpec("endsWith", "健康状况码", "健康状况", healthCodes),
-        CodeSpec("endsWith", "学位码", "学位", degreeCodes),
-        // label 没有「码」后缀,需要精确匹配
         CodeSpec("exact", "身份证件类型", "身份证件类型", idTypeCodes),
         CodeSpec("exact", "证件类型", "证件类型", idTypeCodes),
-        // 安大校内的具体业务码表(待补全)
+        CodeSpec("endsWith", "婚姻状况码", "婚姻状况", maritalStatusCodes),
+        CodeSpec("exact", "婚姻状况", "婚姻状况", maritalStatusCodes),
+        CodeSpec("endsWith", "学历码", "学历", educationCodes),
+        CodeSpec("exact", "学历", "学历", educationCodes),
+        CodeSpec("endsWith", "健康状况码", "健康状况", healthCodes),
+        CodeSpec("exact", "健康状况", "健康状况", healthCodes),
+        CodeSpec("endsWith", "学位码", "学位", degreeCodes),
+        CodeSpec("exact", "学位", "学位", degreeCodes),
+        // 教育相关码表
+        CodeSpec("endsWith", "培养层次码", "培养层次", educationLevelCodes),
+        CodeSpec("exact", "培养层次", "培养层次", educationLevelCodes),
+        CodeSpec("endsWith", "是否在校码", "是否在校", inSchoolCodes),
+        CodeSpec("exact", "是否在校", "是否在校", inSchoolCodes),
+        CodeSpec("endsWith", "是否在籍码", "是否在籍", registeredCodes),
+        CodeSpec("exact", "是否在籍", "是否在籍", registeredCodes),
+        // 安大校内的具体业务码表
         CodeSpec("exact", "校区", "校区", campusCodes),
         CodeSpec("exact", "楼栋", "楼栋", buildingCodes),
-        CodeSpec("exact", "所在楼栋", "楼栋", buildingCodes)
+        CodeSpec("exact", "所在楼栋", "楼栋", buildingCodes),
+        CodeSpec("exact", "楼栋号", "楼栋", buildingCodes),
+        CodeSpec("endsWith", "楼栋码", "楼栋", buildingCodes),
     )
 
     fun isHiddenField(label: String): Boolean {
         return fieldsToHide.any { label.equals(it, ignoreCase = true) }
+    }
+
+    /**
+     * 将 fetchUserInfo 返回的英文 key 转为中文展示标签。
+     * 未在 [userInfoFieldLabelMap] 中的 key 返回 null（调用方自行回退）。
+     */
+    fun resolveUserInfoLabel(key: String): String? {
+        return userInfoFieldLabelMap[key]
     }
 
     /**

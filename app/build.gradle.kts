@@ -48,7 +48,6 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
     implementation(libs.gson)
-    implementation(libs.zxing.core)
     implementation(libs.datastore.preferences)
     implementation(libs.androidx.security.crypto)
     implementation(libs.coil.compose)

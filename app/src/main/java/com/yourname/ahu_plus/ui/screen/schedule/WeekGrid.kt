@@ -35,12 +35,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
+import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
+import com.yourname.ahu_plus.ui.theme.AhuBlue
+import com.yourname.ahu_plus.ui.theme.AhuGreen
+import com.yourname.ahu_plus.ui.theme.AhuOrange
+import com.yourname.ahu_plus.ui.theme.AhuRed
+import com.yourname.ahu_plus.ui.theme.AhuTeal
+import com.yourname.ahu_plus.ui.theme.AhuViolet
 import java.time.LocalDate
+import java.time.LocalTime
 
 val CourseColors = listOf(
-    Color(0xFF2F80ED), Color(0xFFE76F51), Color(0xFF2A9D8F),
-    Color(0xFF8E5CF7), Color(0xFFF2994A), Color(0xFF00A7A5),
-    Color(0xFFEB5757), Color(0xFF27AE60), Color(0xFF9B51E0),
+    AhuBlue, Color(0xFFE76F51), AhuGreen,
+    AhuViolet, AhuOrange, AhuTeal,
+    AhuRed, Color(0xFF27AE60), Color(0xFF8B5CF6),
     Color(0xFF1F7A8C)
 )
 
@@ -80,7 +88,24 @@ fun WeekGrid(
 
     val gridWidth = colWidth * 7
     val bodyHeight = rowHeight * totalRows
-    val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)
+    val currentTimeLineY = remember(sortedUnits, isCurrentWeek, rowHeight) {
+        if (!isCurrentWeek) {
+            null
+        } else {
+            val now = LocalTime.now()
+            val nowMinutes = now.hour * 60 + now.minute
+            sortedUnits.firstNotNullOfOrNull { unit ->
+                val unitNo = unit.indexNo ?: return@firstNotNullOfOrNull null
+                val start = parseTimeMinutes(unit.startTimeStr()) ?: return@firstNotNullOfOrNull null
+                val end = parseTimeMinutes(unit.endTimeStr()) ?: return@firstNotNullOfOrNull null
+                if (nowMinutes !in start..end || end <= start) return@firstNotNullOfOrNull null
+                val row = unitNo - minUnit
+                val fraction = (nowMinutes - start).toFloat() / (end - start)
+                rowHeight * row + rowHeight * fraction
+            }
+        }
+    }
 
     val groupedItems = remember(displayItems) {
         val groups = mutableMapOf<String, MutableList<CourseDisplayItem>>()
@@ -169,12 +194,30 @@ fun WeekGrid(
                                     .size(colWidth, rowHeight)
                                     .background(
                                         when {
-                                            isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.045f)
+                                            isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.07f)
                                             row % 2 == 0 -> MaterialTheme.colorScheme.surface
                                             else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f)
                                         }
                                     )
                                     .border(0.5.dp, lineColor)
+                            )
+                        }
+                    }
+
+                    if (currentTimeLineY != null) {
+                        val todayCol = todayDayOfWeek - 1
+                        if (todayCol in 0..6) {
+                            Box(
+                                modifier = Modifier
+                                    .offset(colWidth * todayCol + 5.dp, currentTimeLineY)
+                                    .size(8.dp, 8.dp)
+                                    .background(MaterialTheme.colorScheme.error, RoundedCornerShape(999.dp))
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .offset(colWidth * todayCol + 10.dp, currentTimeLineY + 3.dp)
+                                    .size(colWidth - 14.dp, 2.dp)
+                                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.78f))
                             )
                         }
                     }
@@ -316,9 +359,9 @@ private fun CourseCard(
 
     Card(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = bg.copy(alpha = 0.94f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier

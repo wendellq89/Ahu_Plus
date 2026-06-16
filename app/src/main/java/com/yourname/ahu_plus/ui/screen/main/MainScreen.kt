@@ -17,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -26,10 +27,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
+import com.yourname.ahu_plus.data.repository.AttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
 import com.yourname.ahu_plus.data.repository.ExamRepository
+import com.yourname.ahu_plus.data.repository.FinanceRepository
 import com.yourname.ahu_plus.data.repository.GradeRepository
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
@@ -47,6 +50,8 @@ import com.yourname.ahu_plus.ui.screen.grade.GradeViewModel
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
 import com.yourname.ahu_plus.ui.screen.market.MarketScreen
 import com.yourname.ahu_plus.ui.screen.market.MarketViewModel
+import com.yourname.ahu_plus.ui.screen.profile.AttendanceViewModel
+import com.yourname.ahu_plus.ui.screen.profile.FinanceViewModel
 import com.yourname.ahu_plus.ui.screen.profile.ProfileScreen
 import com.yourname.ahu_plus.ui.screen.profile.StudentInfoViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleScreen
@@ -61,6 +66,7 @@ private const val HOME_SCHEDULE = 1
 private const val HOME_NOTICE_LIST = 2
 private const val HOME_GRADE = 3
 private const val HOME_EXAM = 4
+private const val HOME_BILLS = 5
 
 @Composable
 fun MainScreen(
@@ -76,6 +82,8 @@ fun MainScreen(
     courseNoteRepository: CourseNoteRepository,
     gradeRepository: GradeRepository,
     examRepository: ExamRepository,
+    financeRepository: FinanceRepository,
+    attendanceRepository: AttendanceRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
     /** 仅清除会话并跳转登录(保留凭据/集市token等本地数据) */
@@ -86,13 +94,18 @@ fun MainScreen(
     var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
 
+    // 跨 Tab 跳转目标:Dashboard 常用应用点击「浴室/空调/照明/网费」时使用
+    // 切到「我的」Tab 并把 scrollTarget 透传给 ProfileScreen,滚动到对应卡片后清空
+    var profileScrollTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var openCardAnalytics by rememberSaveable { mutableStateOf(false) }
+
     // 系统返回键:仅处理首页的子页面回退 (集市/我的子页面由各自 BackHandler 处理)
     BackHandler(enabled = homePage != HOME_DASHBOARD) {
         homePage = HOME_DASHBOARD
     }
 
     val cardViewModel = remember {
-        HomeViewModel(cardRepository, casAuthRepository, ycardRepository)
+        HomeViewModel(cardRepository, casAuthRepository, ycardRepository, sessionManager, studentInfoRepository)
     }
     val scheduleViewModel = remember {
         ScheduleViewModel(jwAuthRepository, courseRepository, courseNoteRepository, sessionManager)
@@ -100,6 +113,10 @@ fun MainScreen(
     val marketViewModel = remember {
         MarketViewModel(marketRepository)
     }
+    val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
+    // 集市功能总开关:true=底部 3 Tab(首页/集市/我的),false=仅 2 Tab(首页/我的)
+    // 关闭后即使 selectedTab 指向 TAB_MARKET 也降级到 TAB_HOME
+    val marketEnabled = marketUiState.marketEnabled
     val jwcNoticeViewModel = remember {
         JwcNoticeViewModel(jwcNoticeRepository)
     }
@@ -110,10 +127,16 @@ fun MainScreen(
         StudentInfoViewModel(studentInfoRepository, sessionManager)
     }
     val gradeViewModel = remember {
-        GradeViewModel(jwAuthRepository, gradeRepository)
+        GradeViewModel(jwAuthRepository, gradeRepository, sessionManager)
     }
     val examViewModel = remember {
-        ExamViewModel(jwAuthRepository, examRepository)
+        ExamViewModel(jwAuthRepository, examRepository, sessionManager)
+    }
+    val financeViewModel = remember {
+        FinanceViewModel(financeRepository, sessionManager)
+    }
+    val attendanceViewModel = remember {
+        AttendanceViewModel(attendanceRepository, sessionManager)
     }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -135,18 +158,20 @@ fun MainScreen(
                     },
                     label = { Text("首页") }
                 )
-                NavigationBarItem(
-                    selected = selectedTab == TAB_MARKET,
-                    onClick = { selectedTab = TAB_MARKET },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == TAB_MARKET) Icons.Filled.Storefront
-                            else Icons.Outlined.Storefront,
-                            contentDescription = "集市"
-                        )
-                    },
-                    label = { Text("集市") }
-                )
+                if (marketEnabled) {
+                    NavigationBarItem(
+                        selected = selectedTab == TAB_MARKET,
+                        onClick = { selectedTab = TAB_MARKET },
+                        icon = {
+                            Icon(
+                                imageVector = if (selectedTab == TAB_MARKET) Icons.Filled.Storefront
+                                else Icons.Outlined.Storefront,
+                                contentDescription = "集市"
+                            )
+                        },
+                        label = { Text("集市") }
+                    )
+                }
                 NavigationBarItem(
                     selected = selectedTab == TAB_PROFILE,
                     onClick = { selectedTab = TAB_PROFILE },
@@ -163,8 +188,41 @@ fun MainScreen(
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
-            when (selectedTab) {
-                TAB_HOME -> {
+            when {
+                !marketEnabled && selectedTab == TAB_MARKET -> {
+                    // 集市被禁用,但 selectedTab 仍指向 TAB_MARKET (旧状态) — 降级到首页
+                    DashboardScreen(
+                        viewModel = scheduleViewModel,
+                        noticeViewModel = jwcNoticeViewModel,
+                        onOpenSchedule = { homePage = HOME_SCHEDULE },
+                        onOpenCard = { homePage = HOME_BILLS },
+                        onOpenNoticeList = { homePage = HOME_NOTICE_LIST },
+                        onOpenGrade = { homePage = HOME_GRADE },
+                        onOpenExam = { homePage = HOME_EXAM },
+                        onOpenBathroom = {
+                            selectedTab = TAB_PROFILE
+                            profileScrollTarget = "bathroom"
+                        },
+                        onOpenAc = {
+                            selectedTab = TAB_PROFILE
+                            profileScrollTarget = "ac"
+                        },
+                        onOpenLighting = {
+                            selectedTab = TAB_PROFILE
+                            profileScrollTarget = "lighting"
+                        },
+                        onOpenInternet = {
+                            selectedTab = TAB_PROFILE
+                            profileScrollTarget = "internet"
+                        },
+                        onOpenCardAnalytics = {
+                            selectedTab = TAB_PROFILE
+                            openCardAnalytics = true
+                        },
+                        onNeedsLogin = onReauth
+                    )
+                }
+                selectedTab == TAB_HOME -> {
                     when (homePage) {
                         HOME_SCHEDULE -> ScheduleScreen(
                             viewModel = scheduleViewModel,
@@ -185,27 +243,66 @@ fun MainScreen(
                             onBack = { homePage = HOME_DASHBOARD },
                             onNeedsLogin = onReauth
                         )
+                        HOME_BILLS -> {
+                            val cardState by cardViewModel.uiState.collectAsStateWithLifecycle()
+                            com.yourname.ahu_plus.ui.screen.profile.BillDetailScreen(
+                                bills = cardState.bills,
+                                isLoading = cardState.billsLoading,
+                                error = cardState.billsError,
+                                onBack = { homePage = HOME_DASHBOARD },
+                                onRefresh = cardViewModel::onRefresh,
+                                onOpenAnalytics = {
+                                    selectedTab = TAB_PROFILE
+                                    openCardAnalytics = true
+                                }
+                            )
+                        }
                         else -> DashboardScreen(
                             viewModel = scheduleViewModel,
                             noticeViewModel = jwcNoticeViewModel,
                             onOpenSchedule = { homePage = HOME_SCHEDULE },
-                            onOpenCard = { selectedTab = TAB_PROFILE },
+                            onOpenCard = { homePage = HOME_BILLS },
                             onOpenNoticeList = { homePage = HOME_NOTICE_LIST },
                             onOpenGrade = { homePage = HOME_GRADE },
                             onOpenExam = { homePage = HOME_EXAM },
+                            onOpenBathroom = {
+                                selectedTab = TAB_PROFILE
+                                profileScrollTarget = "bathroom"
+                            },
+                            onOpenAc = {
+                                selectedTab = TAB_PROFILE
+                                profileScrollTarget = "ac"
+                            },
+                            onOpenLighting = {
+                                selectedTab = TAB_PROFILE
+                                profileScrollTarget = "lighting"
+                            },
+                            onOpenInternet = {
+                                selectedTab = TAB_PROFILE
+                                profileScrollTarget = "internet"
+                            },
+                            onOpenCardAnalytics = {
+                                selectedTab = TAB_PROFILE
+                                openCardAnalytics = true
+                            },
                             onNeedsLogin = onReauth
                         )
                     }
                 }
-                TAB_MARKET -> MarketScreen(viewModel = marketViewModel)
-                TAB_PROFILE -> ProfileScreen(
+                selectedTab == TAB_MARKET -> MarketScreen(viewModel = marketViewModel)
+                else -> ProfileScreen(
                     cardViewModel = cardViewModel,
                     marketViewModel = marketViewModel,
                     studentInfoViewModel = studentInfoViewModel,
+                    financeViewModel = financeViewModel,
+                    attendanceViewModel = attendanceViewModel,
                     scheduleUiState = scheduleUiState,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
-                    onReauth = onReauth,
+                    scrollTarget = profileScrollTarget,
+                    onScrollTargetConsumed = { profileScrollTarget = null },
+                    openCardAnalytics = openCardAnalytics,
+                    onCardAnalyticsConsumed = { openCardAnalytics = false },
                     onLogout = onLogout
                 )
             }

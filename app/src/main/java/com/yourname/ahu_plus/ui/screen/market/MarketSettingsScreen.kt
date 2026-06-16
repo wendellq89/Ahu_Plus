@@ -31,8 +31,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.remote.market.MarketApi
+import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,16 +60,13 @@ fun MarketSettingsScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
+            AhuTopAppBar(
                 title = { Text("集市设置") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background

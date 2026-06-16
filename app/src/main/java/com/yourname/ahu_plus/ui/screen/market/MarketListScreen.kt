@@ -42,8 +42,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.model.MarketTopic
+import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.theme.MarketColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,12 +98,14 @@ internal fun MarketListScreen(
     Scaffold(
         topBar = {
             if (uiState.isSearching) {
-                TopAppBar(
+                AhuTopAppBar(
                     title = {
                         OutlinedTextField(
                             value = uiState.searchQuery,
                             onValueChange = onSearchQueryChanged,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp),
                             placeholder = { Text("搜索帖子内容") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
@@ -127,13 +128,10 @@ internal fun MarketListScreen(
                         ) {
                             Text(if (uiState.searchLoading) "搜索中" else "搜索")
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
-                    )
+                    }
                 )
             } else {
-                TopAppBar(
+                AhuTopAppBar(
                     title = { Text("校园集市") },
                     actions = {
                         if (uiState.hasSavedIdentity) {
@@ -147,10 +145,7 @@ internal fun MarketListScreen(
                                 Icon(Icons.Filled.Add, contentDescription = "发帖")
                             }
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
-                    )
+                    }
                 )
             }
         },

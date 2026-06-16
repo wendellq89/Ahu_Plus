@@ -3,10 +3,12 @@ package com.yourname.ahu_plus.ui.screen.market
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -56,7 +58,12 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.data.model.MarketUser
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.ui.theme.MarketColors
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 // ═══════════════════════════════════════════════════════════
 //  头像 / Loading / Status / Footer
@@ -78,7 +85,7 @@ internal fun UserAvatar(user: MarketUser?, size: Dp) {
             AsyncImage(
                 model = avatar,
                 contentDescription = null,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
         } else {
@@ -142,7 +149,7 @@ internal fun StatusCard(
     action: (@Composable () -> Unit)? = null
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.10f)),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -210,7 +217,7 @@ internal fun TopicMetaHeader(topic: MarketTopic, school: String? = null) {
             }
         }
         Text(
-            text = topic.createTime,
+            text = relativeMarketTime(topic.createTime),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1
@@ -234,18 +241,7 @@ internal fun TopicTitle(topic: MarketTopic) {
 
 @Composable
 internal fun TopicFirstImage(topic: MarketTopic) {
-    topic.imgs.firstOrNull()?.let { imageUrl ->
-        AsyncImage(
-            model = imageUrl,
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(180.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentScale = ContentScale.Crop
-        )
-    }
+    TopicImageGrid(imgs = topic.imgs, detail = false)
 }
 
 @Composable
@@ -295,7 +291,7 @@ internal fun TopicFooter(topic: MarketTopic) {
 @Composable
 internal fun MarketTopicCard(topic: MarketTopic, onClick: () -> Unit, school: String? = null) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
@@ -328,7 +324,7 @@ internal fun HotTopicCard(
     school: String? = null
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
@@ -382,7 +378,11 @@ internal fun HotTopicCard(
 }
 
 @Composable
-internal fun MarketTopicDetailCard(topic: MarketTopic, school: String? = null) {
+internal fun MarketTopicDetailCard(
+    topic: MarketTopic,
+    school: String? = null,
+    onImageClick: (String) -> Unit = {}
+) {
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -399,21 +399,92 @@ internal fun MarketTopicDetailCard(topic: MarketTopic, school: String? = null) {
                 text = topic.content.ifBlank { "无正文" },
                 style = MaterialTheme.typography.bodyLarge
             )
-            topic.imgs.forEach { imageUrl ->
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentScale = ContentScale.Crop
-                )
-            }
+            TopicImageGrid(imgs = topic.imgs, detail = true, onImageClick = onImageClick)
             TopicFooter(topic = topic)
         }
     }
+}
+
+@Composable
+private fun TopicImageGrid(
+    imgs: List<String>,
+    detail: Boolean,
+    onImageClick: (String) -> Unit = {}
+) {
+    val visible = imgs.filter { it.isNotBlank() }
+    if (visible.isEmpty()) return
+
+    val corner = RoundedCornerShape(10.dp)
+    val singleHeight = if (detail) 260.dp else 190.dp
+    when (visible.size) {
+        1 -> TopicImage(
+            url = visible.first(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(singleHeight)
+                .clip(corner)
+                .clickable { onImageClick(visible.first()) }
+        )
+        2 -> Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            visible.take(2).forEach { url ->
+                TopicImage(
+                    url = url,
+                    modifier = Modifier
+                        .weight(1f)
+                        .aspectRatio(1f)
+                        .clip(corner)
+                        .clickable { onImageClick(url) }
+                )
+            }
+        }
+        else -> Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            visible.take(3).forEachIndexed { index, url ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .aspectRatio(1f)
+                        .clip(corner)
+                        .clickable { onImageClick(url) }
+                ) {
+                    TopicImage(
+                        url = url,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    if (index == 2 && visible.size > 3) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.38f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "+${visible.size - 3}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TopicImage(url: String, modifier: Modifier) {
+    AsyncImage(
+        model = url,
+        contentDescription = null,
+        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+        contentScale = ContentScale.Crop
+    )
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -556,4 +627,20 @@ fun MarketIdentityEditor(
 internal fun maskToken(token: String): String {
     val t = if (token.startsWith("Bearer ", ignoreCase = true)) token.drop(7) else token
     return if (t.length > 24) "${t.take(12)}…${t.takeLast(8)}" else t
+}
+
+private fun relativeMarketTime(raw: String): String {
+    if (raw.isBlank()) return ""
+    val parsed = runCatching {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).parse(raw)
+    }.getOrNull() ?: return raw
+    val diff = Date().time - parsed.time
+    if (diff < 0) return raw
+    return when {
+        diff < TimeUnit.MINUTES.toMillis(1) -> "刚刚"
+        diff < TimeUnit.HOURS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toMinutes(diff)} 分钟前"
+        diff < TimeUnit.DAYS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toHours(diff)} 小时前"
+        diff < TimeUnit.DAYS.toMillis(7) -> "${TimeUnit.MILLISECONDS.toDays(diff)} 天前"
+        else -> SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(parsed)
+    }
 }

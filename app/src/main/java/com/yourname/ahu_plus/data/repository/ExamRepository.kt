@@ -125,8 +125,11 @@ class ExamRepository(
         val campus = locationSpans.getOrNull(0).orEmpty()
         val building = locationSpans.getOrNull(1).orEmpty()
         val room = locationSpans.getOrNull(2).orEmpty()
-        val seatNumber = firstTd.selectFirst("[id^=seat-]")?.id()?.removePrefix("seat-")
-            ?.takeIf { it.isNotBlank() }
+        // 座位号：HTML 中 span id="seat-XXXXXXX" 为数据库记录 ID(7位数)，
+        // 无真实文本内容。仅当数值 ≤999 时才可能是真实座位号。
+        val seatElement = firstTd.selectFirst("[id^=seat-]")
+        val seatId = seatElement?.id()?.removePrefix("seat-")?.toIntOrNull()
+        val seatNumber = seatId?.takeIf { it in 1..999 }?.toString()
 
         // —— 课程名 + 考试类型 ——
         val secondTd = tds[1]

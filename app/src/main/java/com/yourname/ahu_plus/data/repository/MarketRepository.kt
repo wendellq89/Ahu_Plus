@@ -36,18 +36,24 @@ class MarketRepository(
     //  GET
     // ══════════════════════════════════════════════════════
 
-    suspend fun getTopics(page: Int = 1): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
-        requestMarketJson("${MarketApi.TOPICS_URL}?page=$page")
+    suspend fun getTopics(
+        page: Int = 1,
+        identity: String? = null
+    ): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
+        requestMarketJson("${MarketApi.TOPICS_URL}?page=$page", identity)
             .mapCatching { body -> JsonUtils.parseRowsSafe<MarketTopic>(body) }
     }
 
-    suspend fun getTopTopics(): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
-        requestMarketJson(MarketApi.TOPICS_TOP_URL)
+    suspend fun getTopTopics(identity: String? = null): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
+        requestMarketJson(MarketApi.TOPICS_TOP_URL, identity)
             .mapCatching { body -> JsonUtils.parseRowsSafe<MarketTopic>(body) }
     }
 
-    suspend fun getTopic(topicId: Long): Result<MarketTopic> = withContext(Dispatchers.IO) {
-        requestMarketJson("${MarketApi.TOPICS_URL}/$topicId").mapCatching { body ->
+    suspend fun getTopic(
+        topicId: Long,
+        identity: String? = null
+    ): Result<MarketTopic> = withContext(Dispatchers.IO) {
+        requestMarketJson("${MarketApi.TOPICS_URL}/$topicId", identity).mapCatching { body ->
             val data = JsonUtils.parseData(body)
             if (data.isJsonObject) {
                 JsonUtils.parseObject<MarketTopic>(body)
@@ -62,9 +68,10 @@ class MarketRepository(
     suspend fun getComments(
         topicId: Long,
         page: Int = 1,
-        sort: String = "hot"
+        sort: String = "hot",
+        identity: String? = null
     ): Result<List<MarketComment>> = withContext(Dispatchers.IO) {
-        requestMarketJson("${MarketApi.COMMENTS_URL}?topic_id=$topicId&sort=$sort&page=$page")
+        requestMarketJson("${MarketApi.COMMENTS_URL}?topic_id=$topicId&sort=$sort&page=$page", identity)
             .mapCatching { body -> JsonUtils.parseRowsSafe<MarketComment>(body) }
     }
 
@@ -72,16 +79,107 @@ class MarketRepository(
         topicId: Long,
         commentId: Long,
         page: Int = 1,
-        pageSize: Int = 6
+        pageSize: Int = 6,
+        identity: String? = null
     ): Result<MarketCommentReplies> = withContext(Dispatchers.IO) {
         requestMarketJson(
             "${MarketApi.COMMENTS_URL}?topic_id=$topicId&comment_id=$commentId" +
-                "&sort=time&page=$page&page_size=$pageSize"
+                "&sort=time&page=$page&page_size=$pageSize",
+            identity
         ).mapCatching { body -> parseCommentReplies(body, page, pageSize) }
     }
 
-    suspend fun getNotices(page: Int = 1): Result<MarketNoticePage> = withContext(Dispatchers.IO) {
-        requestMarketJson("${MarketApi.USER_NOTICES_URL}?page=$page")
+    /**
+     * 一次性拉取指定 topic 的所有顶级评论 + 每条评论的全量回复。
+     *
+     * 用于帖子导出场景：详情页可能只翻了几页，导出时需要完整快照。
+     * 串行翻页避免打爆服务端；单条评论的回复也按 replyCount 串行翻到尽头。
+     */
+    suspend fun loadAllCommentsWithReplies(
+        topicId: Long,
+        identity: String? = null,
+        maxCommentPages: Int = 50,
+        maxReplyPages: Int = 100
+    ): Result<List<MarketComment>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val allComments = mutableListOf<MarketComment>()
+            var page = 1
+            while (page <= maxCommentPages) {
+                val pageResult = getComments(
+                    topicId = topicId,
+                    page = page,
+                    sort = "hot",
+                    identity = identity
+                ).getOrThrow()
+                if (pageResult.isEmpty()) break
+                allComments += pageResult
+                if (pageResult.size < DEFAULT_COMMENT_PAGE_SIZE) break
+                page++
+            }
+            // 每条评论逐个翻完它的全部回复
+            allComments.mapIndexed { index, comment ->
+                val withReplies = loadCommentRepliesPaged(
+                    topicId = topicId,
+                    comment = comment,
+                    identity = identity,
+                    maxReplyPages = maxReplyPages
+                )
+                allComments[index] = withReplies
+                withReplies
+            }
+            allComments
+        }
+    }
+
+    /**
+     * 把单条评论的全部回复串行翻完，合并到 [comment] 上。
+     */
+    private suspend fun loadCommentRepliesPaged(
+        topicId: Long,
+        comment: MarketComment,
+        identity: String?,
+        maxReplyPages: Int
+    ): MarketComment {
+        val existing = comment.visibleReplies
+        val knownReplyIds = existing.map { it.id }.toHashSet()
+        val merged = existing.toMutableList()
+        val pageSize = comment.replys?.pageSize?.takeIf { it > 0 } ?: 6
+        val expectedTotal = comment.visibleReplyCount
+        var page = 1 + (existing.size / pageSize)
+        while (page <= maxReplyPages) {
+            val result = getCommentReplies(
+                topicId = topicId,
+                commentId = comment.id,
+                page = page,
+                pageSize = pageSize,
+                identity = identity
+            ).getOrElse { return comment.copy(replies = merged) }
+            if (result.rows.isEmpty()) break
+            val fresh = result.rows.filterNot { it.id in knownReplyIds }
+            fresh.forEach { knownReplyIds += it.id }
+            merged += fresh
+            if (result.rows.size < pageSize) break
+            if (merged.size >= expectedTotal && expectedTotal > 0) break
+            page++
+        }
+        val newCount = maxOf(comment.visibleReplyCount, merged.size)
+        return comment.copy(
+            replyCount = newCount,
+            replys = MarketCommentReplies(
+                count = newCount,
+                page = page - 1,
+                rows = merged,
+                loading = false,
+                pageSize = pageSize
+            )
+        )
+    }
+
+    suspend fun getNotices(
+        page: Int = 1,
+        identity: String? = null
+    ): Result<MarketNoticePage> = withContext(Dispatchers.IO) {
+        requestMarketJson("${MarketApi.USER_NOTICES_URL}?page=$page", identity)
             .mapCatching { body -> parseNotices(body, page) }
     }
 
@@ -94,14 +192,15 @@ class MarketRepository(
      */
     suspend fun searchTopics(
         content: String,
-        page: Int = 1
+        page: Int = 1,
+        identity: String? = null
     ): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
         val keyword = content.trim()
         if (keyword.isBlank()) {
             return@withContext Result.success(emptyList())
         }
         val encoded = java.net.URLEncoder.encode(keyword, "UTF-8")
-        requestMarketJson("${MarketApi.TOPICS_URL}?page=$page&content=$encoded")
+        requestMarketJson("${MarketApi.TOPICS_URL}?page=$page&content=$encoded", identity)
             .mapCatching { body -> JsonUtils.parseRowsSafe<MarketTopic>(body) }
     }
 
@@ -116,10 +215,11 @@ class MarketRepository(
         title: String,
         content: String,
         nodeId: Long,
-        isAnon: Boolean
+        isAnon: Boolean,
+        identity: String? = null
     ): Result<Long> = withContext(Dispatchers.IO) {
         val payload = gson.toJson(topicPayload(title, content, nodeId, isAnon))
-        postMarketJson(MarketApi.TOPICS_URL, payload).mapCatching { body ->
+        postMarketJson(MarketApi.TOPICS_URL, payload, identity).mapCatching { body ->
             parseCreatedTopicId(body)
         }
     }
@@ -132,10 +232,11 @@ class MarketRepository(
         content: String,
         commentId: Long = 0L,
         replyId: Long = 0L,
-        targetUserId: Long = 0L
+        targetUserId: Long = 0L,
+        identity: String? = null
     ): Result<MarketComment> = withContext(Dispatchers.IO) {
         val payload = gson.toJson(commentPayload(topicId, content, commentId, replyId, targetUserId))
-        postMarketJson(MarketApi.COMMENTS_URL, payload).mapCatching { body ->
+        postMarketJson(MarketApi.COMMENTS_URL, payload, identity).mapCatching { body ->
             parseCreatedComment(body, topicId)
         }
     }
@@ -249,6 +350,14 @@ class MarketRepository(
         sessionManager.saveFilterNodeIds(nodeIds)
     }
 
+    // ── 集市功能总开关 ──────────────────────────────────
+    // 控制底部导航是否展示「集市」Tab；关闭后用户在「我的 → 集市设置」可重新启用
+    fun getMarketEnabled(): Boolean = sessionManager.getMarketEnabled()
+
+    suspend fun setMarketEnabled(enabled: Boolean) {
+        sessionManager.setMarketEnabled(enabled)
+    }
+
     /**
      * 多校园身份：并发拉取每个 token 的 topics，合并去重。
      * @return (合并后的帖子列表, topicId → 学校名的映射)
@@ -256,44 +365,84 @@ class MarketRepository(
     suspend fun getTopicsMulti(
         identities: List<MarketIdentity>,
         page: Int = 1
-    ): Result<Pair<List<MarketTopic>, Map<Long, String>>> = withContext(Dispatchers.IO) {
-        if (identities.size <= 1) {
-            val topics = getTopics(page).getOrElse { emptyList() }
-            val school = identities.firstOrNull()?.school
-            val map = if (school != null) topics.associate { it.id to school } else emptyMap()
-            return@withContext Result.success(Pair(topics, map))
+    ): Result<MarketTopicBatch> = withContext(Dispatchers.IO) {
+        requestTopicsForIdentities(identities) { identity ->
+            "${MarketApi.TOPICS_URL}?page=$page" to identity.token
         }
-        coroutineScope {
-            val deferred = identities.map { identity ->
-                async {
-                    val school = identity.school
-                    val topics = runCatching {
-                        requestMarketJson("${MarketApi.TOPICS_URL}?page=$page", identity.token)
-                            .getOrThrow()
-                            .let { JsonUtils.parseRowsSafe<MarketTopic>(it) }
-                    }.getOrDefault(emptyList())
-                    Pair(topics, school)
-                }
-            }
-            val results = deferred.map { it.await() }
-            val allTopics = results.flatMap { it.first }
-                .distinctBy { it.id }
-                .sortedByDescending { it.id }
-            val schoolMap = mutableMapOf<Long, String>()
-            for ((topics, school) in results) {
-                if (school != null) {
-                    for (topic in topics) {
-                        schoolMap[topic.id] = school
-                    }
-                }
-            }
-            Result.success(Pair(allTopics, schoolMap))
+    }
+
+    suspend fun getTopTopicsMulti(
+        identities: List<MarketIdentity>
+    ): Result<MarketTopicBatch> = withContext(Dispatchers.IO) {
+        requestTopicsForIdentities(identities) { identity ->
+            MarketApi.TOPICS_TOP_URL to identity.token
+        }
+    }
+
+    suspend fun searchTopicsMulti(
+        content: String,
+        identities: List<MarketIdentity>,
+        page: Int = 1
+    ): Result<MarketTopicBatch> = withContext(Dispatchers.IO) {
+        val keyword = content.trim()
+        if (keyword.isBlank()) return@withContext Result.success(MarketTopicBatch())
+        val encoded = java.net.URLEncoder.encode(keyword, "UTF-8")
+        requestTopicsForIdentities(identities) { identity ->
+            "${MarketApi.TOPICS_URL}?page=$page&content=$encoded" to identity.token
         }
     }
 
     // ══════════════════════════════════════════════════════
     //  Payload 构造
     // ══════════════════════════════════════════════════════
+
+    private suspend fun requestTopicsForIdentities(
+        identities: List<MarketIdentity>,
+        requestFor: (MarketIdentity) -> Pair<String, String>
+    ): Result<MarketTopicBatch> {
+        if (identities.isEmpty()) return Result.success(MarketTopicBatch())
+
+        val results = coroutineScope {
+            identities.map { identity ->
+                async {
+                    val (url, token) = requestFor(identity)
+                    requestMarketJson(url, token).mapCatching { body ->
+                        IdentityTopics(
+                            identity = identity,
+                            topics = JsonUtils.parseRowsSafe<MarketTopic>(body)
+                        )
+                    }
+                }
+            }.map { it.await() }
+        }
+
+        val successful = results.mapNotNull { it.getOrNull() }
+        if (successful.isEmpty()) {
+            return Result.failure(
+                results.firstNotNullOfOrNull { it.exceptionOrNull() }
+                    ?: Exception("集市加载失败")
+            )
+        }
+
+        val allTopics = successful.flatMap { it.topics }
+            .distinctBy { it.id }
+            .sortedByDescending { it.id }
+        val schoolMap = mutableMapOf<Long, String>()
+        val identityMap = mutableMapOf<Long, String>()
+        for (result in successful) {
+            for (topic in result.topics) {
+                result.identity.school?.let { schoolMap[topic.id] = it }
+                identityMap[topic.id] = result.identity.token
+            }
+        }
+        return Result.success(
+            MarketTopicBatch(
+                topics = allTopics,
+                topicSchoolMap = schoolMap,
+                topicIdentityMap = identityMap
+            )
+        )
+    }
 
     private fun topicPayload(
         title: String, content: String, nodeId: Long, isAnon: Boolean
@@ -485,5 +634,17 @@ class MarketRepository(
 
     private companion object {
         const val TAG = "MarketRepo"
+        const val DEFAULT_COMMENT_PAGE_SIZE = 6
     }
 }
+
+data class MarketTopicBatch(
+    val topics: List<MarketTopic> = emptyList(),
+    val topicSchoolMap: Map<Long, String> = emptyMap(),
+    val topicIdentityMap: Map<Long, String> = emptyMap()
+)
+
+private data class IdentityTopics(
+    val identity: MarketIdentity,
+    val topics: List<MarketTopic>
+)

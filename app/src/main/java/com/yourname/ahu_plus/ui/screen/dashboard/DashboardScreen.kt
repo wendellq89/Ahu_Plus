@@ -9,6 +9,7 @@ import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,11 +22,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
@@ -33,10 +37,13 @@ import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Grade
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,8 +57,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,8 +80,20 @@ import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.formatTime
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
 import com.yourname.ahu_plus.data.repository.CourseRepository
+import com.yourname.ahu_plus.ui.components.AhuCard
+import com.yourname.ahu_plus.ui.components.AhuIconBox
+import com.yourname.ahu_plus.ui.components.AhuSectionTitle
+import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
+import com.yourname.ahu_plus.ui.theme.AhuBlue
+import com.yourname.ahu_plus.ui.theme.AhuGreen
+import com.yourname.ahu_plus.ui.theme.AhuIndigo
+import com.yourname.ahu_plus.ui.theme.AhuOrange
+import com.yourname.ahu_plus.ui.theme.AhuRed
+import com.yourname.ahu_plus.ui.theme.AhuTeal
+import com.yourname.ahu_plus.ui.theme.AhuViolet
 import org.json.JSONArray
 import java.time.LocalDate
 import java.time.LocalTime
@@ -91,6 +108,11 @@ fun DashboardScreen(
     onOpenNoticeList: () -> Unit,
     onOpenGrade: () -> Unit,
     onOpenExam: () -> Unit,
+    onOpenBathroom: () -> Unit,
+    onOpenAc: () -> Unit,
+    onOpenLighting: () -> Unit,
+    onOpenInternet: () -> Unit,
+    onOpenCardAnalytics: () -> Unit,
     onNeedsLogin: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -102,7 +124,7 @@ fun DashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            AhuTopAppBar(
                 title = { Text("安大 Plus") },
                 actions = {
                     IconButton(
@@ -113,10 +135,7 @@ fun DashboardScreen(
                     ) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -143,7 +162,12 @@ fun DashboardScreen(
                         onOpenCard = onOpenCard,
                         onOpenGrade = onOpenGrade,
                         onOpenExam = onOpenExam,
-                        onOpenNoticeList = onOpenNoticeList
+                        onOpenNoticeList = onOpenNoticeList,
+                        onOpenBathroom = onOpenBathroom,
+                        onOpenAc = onOpenAc,
+                        onOpenLighting = onOpenLighting,
+                        onOpenInternet = onOpenInternet,
+                        onOpenCardAnalytics = onOpenCardAnalytics
                     )
                 }
 
@@ -188,27 +212,13 @@ private fun JwcNoticeSection(
     onToggleNotice: (JwcNotice) -> Unit,
     onOpenMore: () -> Unit
 ) {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    AhuCard {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFFE07A5F).copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        androidx.compose.material3.LocalContentColor provides Color(0xFFE07A5F)
-                    ) {
-                        Icon(Icons.Filled.Campaign, contentDescription = null)
-                    }
-                }
+                AhuIconBox(
+                    imageVector = Icons.Filled.Campaign,
+                    tint = AhuOrange
+                )
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -510,7 +520,7 @@ private fun TodayCourseCard(
     }
 
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = AhuShapes.LargeCard,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         ),
@@ -523,7 +533,7 @@ private fun TodayCourseCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.primary)
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -534,7 +544,7 @@ private fun TodayCourseCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "下节课",
+                    text = if (nextCourse != null) "下节课" else "今天的安排",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimary,
                     fontWeight = FontWeight.Bold
@@ -542,12 +552,20 @@ private fun TodayCourseCard(
                 if (nextCourse != null) {
                     Spacer(modifier = Modifier.weight(1f))
                     CountdownChip(course = nextCourse, unitTimes = uiState.unitTimes)
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = "第 ${uiState.currentWeek} 周",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f),
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 
             Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 when {
                     uiState.isLoading && uiState.allActivities.isEmpty() -> {
@@ -586,8 +604,8 @@ private fun TodayCourseCard(
 
                     else -> {
                         Text(
-                            text = if (todayItems.isEmpty()) "今天没课啦，可以慢慢安排自己的时间。"
-                            else "今天后面没课啦，剩下的时间归你。",
+                            text = if (todayItems.isEmpty()) "今天没课，可以慢慢安排。"
+                            else "今天后面没课，剩下的时间归你。",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -741,65 +759,93 @@ private fun AppDock(
     onOpenCard: () -> Unit,
     onOpenGrade: () -> Unit,
     onOpenExam: () -> Unit,
-    onOpenNoticeList: () -> Unit
+    onOpenNoticeList: () -> Unit,
+    onOpenBathroom: () -> Unit,
+    onOpenAc: () -> Unit,
+    onOpenLighting: () -> Unit,
+    onOpenInternet: () -> Unit,
+    onOpenCardAnalytics: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "常用应用",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
+        AhuSectionTitle(text = "常用应用")
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             AppDockItem(
                 title = "课表",
-                iconColor = Color(0xFF2F80ED),
+                iconColor = AhuBlue,
                 onClick = onOpenSchedule,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.width(78.dp)
             ) {
                 Icon(Icons.Filled.CalendarMonth, contentDescription = null)
             }
             AppDockItem(
                 title = "成绩",
-                iconColor = Color(0xFFE53935),
+                iconColor = AhuRed,
                 onClick = onOpenGrade,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.width(78.dp)
             ) {
                 Icon(Icons.Filled.Grade, contentDescription = null)
             }
             AppDockItem(
                 title = "考试",
-                iconColor = Color(0xFFFB8C00),
+                iconColor = AhuOrange,
                 onClick = onOpenExam,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.width(78.dp)
             ) {
                 Icon(Icons.Filled.EventNote, contentDescription = null)
             }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
             AppDockItem(
-                title = "校园卡",
-                iconColor = Color(0xFF2A9D8F),
-                onClick = onOpenCard,
-                modifier = Modifier.weight(1f)
+                title = "消费分析",
+                iconColor = AhuViolet,
+                onClick = onOpenCardAnalytics,
+                modifier = Modifier.width(78.dp)
             ) {
-                Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null)
+                Icon(Icons.Filled.Assessment, contentDescription = null)
+            }
+            AppDockItem(
+                title = "浴室",
+                iconColor = AhuTeal,
+                onClick = onOpenBathroom,
+                modifier = Modifier.width(78.dp)
+            ) {
+                Icon(Icons.Filled.WaterDrop, contentDescription = null)
+            }
+            AppDockItem(
+                title = "空调",
+                iconColor = AhuBlue,
+                onClick = onOpenAc,
+                modifier = Modifier.width(78.dp)
+            ) {
+                Icon(Icons.Filled.AcUnit, contentDescription = null)
+            }
+            AppDockItem(
+                title = "照明",
+                iconColor = AhuOrange,
+                onClick = onOpenLighting,
+                modifier = Modifier.width(78.dp)
+            ) {
+                Icon(Icons.Filled.Lightbulb, contentDescription = null)
+            }
+            AppDockItem(
+                title = "网费",
+                iconColor = AhuIndigo,
+                onClick = onOpenInternet,
+                modifier = Modifier.width(78.dp)
+            ) {
+                Icon(Icons.Filled.Wifi, contentDescription = null)
             }
             AppDockItem(
                 title = "通告",
-                iconColor = Color(0xFF6C63FF),
+                iconColor = AhuViolet,
                 onClick = onOpenNoticeList,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.width(78.dp)
             ) {
                 Icon(Icons.Filled.Campaign, contentDescription = null)
             }
-            // 占位
-            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }
@@ -812,23 +858,24 @@ private fun AppDockItem(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit
 ) {
-    Card(
+    Surface(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = AhuShapes.Card,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        shadowElevation = 1.dp
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Box(
                 modifier = Modifier
                     .size(38.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(AhuShapes.IconBox)
                     .background(iconColor.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -840,8 +887,9 @@ private fun AppDockItem(
             }
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
             )
         }
     }
@@ -881,5 +929,3 @@ private fun courseStartMinutes(
         ?: unitTimes.firstOrNull { it.indexNo == course.startUnit }?.startTimeStr()
     return parseTimeMinutes(text)
 }
-
-

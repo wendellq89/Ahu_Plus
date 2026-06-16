@@ -17,18 +17,29 @@ import kotlinx.coroutines.withContext
 
 class GradeViewModel(
     private val jwAuthRepository: JwAuthRepository,
-    private val gradeRepository: GradeRepository
+    private val gradeRepository: GradeRepository,
+    private val sessionManager: com.yourname.ahu_plus.data.local.SessionManager? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GradeUiState())
     val uiState: StateFlow<GradeUiState> = _uiState.asStateFlow()
 
+    private val gson = com.yourname.ahu_plus.data.GsonProvider.instance
+
     init {
-        viewModelScope.launch { loadGrades() }
+        // 优先加载本地缓存
+        viewModelScope.launch {
+            val cached = loadFromCache()
+            if (cached) {
+                launch { loadGrades(isRefresh = true) }
+            } else {
+                loadGrades(isRefresh = false)
+            }
+        }
     }
 
     fun onRefresh() {
-        viewModelScope.launch { loadGrades() }
+        viewModelScope.launch { loadGrades(isRefresh = false) }
     }
 
     fun selectSemester(semesterId: Int) {
@@ -43,8 +54,49 @@ class GradeViewModel(
         _uiState.update { it.copy(selectedGrade = null) }
     }
 
-    private suspend fun loadGrades() {
-        _uiState.update { it.copy(isLoading = true, error = null) }
+    /** 从 SessionManager 恢复缓存的成绩数据 */
+    private suspend fun loadFromCache(): Boolean {
+        val sm = sessionManager ?: return false
+        val gradesJson = sm.getGradesJson() ?: return false
+        return try {
+            withContext(Dispatchers.IO) {
+                val resp = gson.fromJson(gradesJson, com.yourname.ahu_plus.data.model.jw.GradeResponse::class.java)
+                val gpaJson = sm.getGpaMetadataJson()
+                val gpa = if (gpaJson != null) {
+                    runCatching { gson.fromJson(gpaJson, GpaMetadata::class.java) }.getOrNull()
+                } else null
+
+                val semesterIds = resp.semesterId2studentGrades?.keys
+                    ?.mapNotNull { it.toIntOrNull() }
+                    ?.sortedDescending()
+                    ?: emptyList()
+                val gradesBySem = resp.semesterId2studentGrades.orEmpty()
+                val defaultSem = semesterIds.firstOrNull()
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        gradesBySemester = gradesBySem,
+                        availableSemesterIds = semesterIds,
+                        selectedSemesterId = defaultSem,
+                        semesterName = defaultSem?.let { id ->
+                            gradesBySem[id.toString()]?.firstOrNull()?.semesterName
+                                ?: resp.semesters?.firstOrNull { s -> s.id == id }?.nameZh
+                        },
+                        gpaMetadata = gpa,
+                        error = null,
+                        needsLogin = false
+                    )
+                }
+            }
+            true
+        } catch (_: Exception) { false }
+    }
+
+    private suspend fun loadGrades(isRefresh: Boolean) {
+        if (!isRefresh) {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+        }
+        val wasLoaded = _uiState.value.gradesBySemester.isNotEmpty()
         try {
             withContext(Dispatchers.IO) {
                 val authResult = jwAuthRepository.authenticate()
@@ -52,8 +104,8 @@ class GradeViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            needsLogin = true,
-                            error = "教务处认证失败: ${authResult.exceptionOrNull()?.message}"
+                            needsLogin = !wasLoaded,
+                            error = if (!wasLoaded) "教务处认证失败: ${authResult.exceptionOrNull()?.message}" else null
                         )
                     }
                     return@withContext
@@ -65,6 +117,17 @@ class GradeViewModel(
 
                 gradesResult.fold(
                     onSuccess = { resp ->
+                        // 缓存到本地
+                        val sm = sessionManager
+                        if (sm != null) {
+                            try {
+                                sm.saveGradesJson(
+                                    gson.toJson(resp),
+                                    gpaResult.getOrNull()?.let { gson.toJson(it) }
+                                )
+                            } catch (_: Exception) { /* 忽略缓存失败 */ }
+                        }
+
                         val semesterIds = resp.semesterId2studentGrades?.keys
                             ?.mapNotNull { it.toIntOrNull() }
                             ?.sortedDescending()
@@ -93,8 +156,8 @@ class GradeViewModel(
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
-                                error = e.message ?: "成绩加载失败",
-                                needsLogin = e is SessionExpiredException,
+                                error = if (!wasLoaded) (e.message ?: "成绩加载失败") else it.error,
+                                needsLogin = !wasLoaded && e is SessionExpiredException,
                                 gpaMetadata = gpaResult.getOrNull(),
                             )
                         }
@@ -105,8 +168,8 @@ class GradeViewModel(
             _uiState.update {
                 it.copy(
                     isLoading = false,
-                    error = "未知错误: ${e.message}",
-                    needsLogin = e is SessionExpiredException
+                    error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
+                    needsLogin = !wasLoaded && e is SessionExpiredException
                 )
             }
         }

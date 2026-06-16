@@ -5,53 +5,51 @@ import com.google.gson.JsonObject
 import com.yourname.ahu_plus.data.GsonProvider
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.StudentInfo
+import com.yourname.ahu_plus.data.model.StudentInfoCodeLookup
 import com.yourname.ahu_plus.data.model.StudentInfoField
-import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class StudentInfoRepository(
     private val sessionManager: SessionManager,
     private val casAuthRepository: CasAuthRepository,
-    private val studentTableUrl: String = STUDENT_TABLE_URL
+    private val client: StudentTableClient = StudentTableClient(casAuthRepository)
 ) {
     private val gson = GsonProvider.instance
 
-    private val client: OkHttpClient = SecureHttpClientFactory.create(
-        cookieJar = casAuthRepository.getCookieJar(),
-        followRedirects = true,
-        disableGzip = false
-    )
-
     suspend fun getStudentInfo(): Result<StudentInfo> {
         return try {
-            casAuthRepository.ensureValidSession().getOrThrow()
-            casAuthRepository.authenticateService(studentTableUrl).getOrThrow()
-            val username = sessionManager.getUsername()
-                ?: return Result.failure(Exception("未找到当前账号"))
+            withContext(Dispatchers.IO) {
+                client.activateSession()
+                val username = sessionManager.getUsername()
+                    ?: return@withContext Result.failure(Exception("未找到当前账号"))
+                client.activateStudentRole()
+                val userInfo = fetchUserInfo(username)
+                val dataItems = client.getAllDataItems()
 
-            activateStudentRole()
-            val userInfo = fetchUserInfo(username)
-            val dataItems = fetchDataItems()
+                // 表单数据优先（服务端正统中文标签），getUserInfo 仅补充独有字段
+                // 先对 form 字段做码值解码，使得 label/value 与 getUserInfo 对齐后再去重
+                val formBasic = decodeFields(fetchNamedFields(dataItems, "学生基本信息", username))
+                val formLabelSet = formBasic.map { it.label }.toSet()
+                val extraUserFields = decodeFields(userInfo).filter { it.label !in formLabelSet }
+                val basicFields = (formBasic + extraUserFields).distinctBy { it.value }
 
-            val basicFields = buildList {
-                addAll(userInfo)
-                addAll(fetchNamedDataItemFields(dataItems, "学生基本信息", username))
-            }.distinctBy { it.label }
+                // 住宿数据：getList API 返回已解析的中文名（JZWH="榴园" 而非 "56"）
+                val housingFields = fetchHousingListFields(dataItems, username)
 
-            val housingFields = fetchNamedDataItemFields(dataItems, "住宿数据", username)
+                val academicWarningFields = fetchNamedFields(dataItems, "学业预警信息", username)
 
-            if (basicFields.isEmpty() && housingFields.isEmpty()) {
-                Result.failure(Exception("未获取到学生基本信息或住宿数据"))
-            } else {
-                val info = StudentInfo(
-                    basicFields = basicFields,
-                    housingFields = housingFields
-                )
-                persistToCache(info)
-                Result.success(info)
+                if (basicFields.isEmpty() && housingFields.isEmpty() && academicWarningFields.isEmpty()) {
+                    Result.failure(Exception("未获取到任何学生一张表数据"))
+                } else {
+                    val info = StudentInfo(
+                        basicFields = basicFields,
+                        housingFields = housingFields,
+                        academicWarningFields = academicWarningFields
+                    )
+                    persistToCache(info)
+                    Result.success(info)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "student info error", e)
@@ -72,49 +70,116 @@ class StudentInfoRepository(
         sessionManager.saveStudentInfoJson(json)
     }
 
-    private fun activateStudentRole() {
-        client.newCall(
-            Request.Builder()
-                .url("$TP_EP_BASE/view?m=ep&role=$STUDENT_ROLE_ID&type=1")
-                .header("User-Agent", UA)
-                .build()
-        ).execute().use { /* 让服务端记录当前角色 */ }
-    }
+    // ── fetchUserInfo ──────────────────────────────────────
 
+    /**
+     * 取 getUserInfo 返回的非空字段。
+     * - 英文 key 映射为中文标签
+     * - 跳过 [StudentInfoCodeLookup.skipUserInfoKeys] 中的冗余字段
+     * - 码值通过 StudentInfoCodeLookup 解码
+     * - BIRTHDAY 是 Unix 时间戳(ms)，转为日期字符串
+     */
     private fun fetchUserInfo(username: String): List<StudentInfoField> {
-        val json = postJson(
-            path = "/ep/userHome/getUserInfo",
-            body = mapOf("ID_NUMBER" to username),
-            referer = "$TP_EP_BASE/view?m=ep&role=$STUDENT_ROLE_ID&type=1"
-        ).asJsonObject
+        val json = client.fetchUserInfoRaw(username)
+        val out = mutableListOf<StudentInfoField>()
+        for ((key, element) in json.entrySet()) {
+            if (element == null || element.isJsonNull) continue
+            if (key in StudentInfoCodeLookup.skipUserInfoKeys) continue
 
-        return listOfNotNull(
-            json.field("USER_NAME", "姓名"),
-            json.field("ID_NUMBER", "学号"),
-            json.field("CODENAME", "性别"),
-            json.field("UNIT_NAME", "学院"),
-            json.field("NATIVE_PLACE", "籍贯"),
-            json.field("MOBILE", "手机号")
-        )
+            val rawValue = runCatching { element.asString }.getOrNull()?.takeIf { it.isNotBlank() }
+            // BIRTHDAY 是 Long 型时间戳
+            val value: String = rawValue
+                ?: runCatching {
+                    val ts = element.asLong
+                    if (ts > 0) formatBirthday(ts) else null
+                }.getOrNull()
+                ?: continue
+
+            val label = StudentInfoCodeLookup.resolveUserInfoLabel(key) ?: key
+            // 解码码值（性别/民族/政治面貌等）
+            val decoded = StudentInfoCodeLookup.decode(label, value)
+            if (decoded != null) {
+                out.add(StudentInfoField(decoded.first, decoded.second))
+            } else {
+                out.add(StudentInfoField(label, value))
+            }
+        }
+        return out
     }
 
-    private fun fetchDataItems(): List<JsonObject> {
-        val json = postJson(
-            path = "/ep/data/database/getAllDataItem",
-            body = mapOf(
-                "type" to "wdsj",
-                "role" to STUDENT_ROLE_ID,
-                "mydata_is_hide_nodatasdiv" to "1"
-            ),
-            referer = "$TP_EP_BASE/view?m=ep&role=$STUDENT_ROLE_ID&type=1#act=ep/data/database"
-        ).asJsonObject
-
-        return json.getAsJsonArray("SJXLIST")
-            ?.mapNotNull { it.takeIf { item -> item.isJsonObject }?.asJsonObject }
-            ?: emptyList()
+    private fun formatBirthday(timestampMs: Long): String {
+        return runCatching {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            sdf.format(java.util.Date(timestampMs))
+        }.getOrElse { timestampMs.toString() }
     }
 
-    private fun fetchNamedDataItemFields(
+    // ── 住宿数据 (getList API) ──────────────────────────────
+
+    /**
+     * 住宿数据使用 list 型 API（getListData），因为 form API 返回码值
+     * （校区=5、楼栋=56），而 getList 返回已解析的中文名（JZWH="榴园"、
+     * XQH="磬苑校区"）。
+     */
+    private fun fetchHousingListFields(
+        dataItems: List<JsonObject>,
+        username: String
+    ): List<StudentInfoField> {
+        val item = dataItems.firstOrNull {
+            it.get("NAME")?.asString == "住宿数据" || it.get("DATATYPENAME")?.asString == "住宿数据"
+        } ?: return emptyList()
+
+        val path = item.get("CKLZ")?.asString?.takeIf { it.isNotBlank() } ?: return emptyList()
+        val pageContext = client.getPageContext(path) ?: return emptyList()
+
+        val resp = runCatching {
+            client.getListData(pageContext, pageNum = 1, pageSize = 1)
+        }.getOrNull() ?: return emptyList()
+
+        val listArr = resp.getAsJsonArray("list") ?: return emptyList()
+        if (listArr.size() == 0) return emptyList()
+        val row = listArr.get(0)?.asJsonObject ?: return emptyList()
+
+        val fields = mutableListOf<StudentInfoField>()
+        for ((key, element) in row.entrySet()) {
+            if (element == null || element.isJsonNull) continue
+            if (key in HOUSING_SKIP_KEYS || key.endsWith("_CPCODE")) continue
+            val value = runCatching { element.asString }.getOrNull()?.takeIf { it.isNotBlank() }
+                ?: continue
+            val label = HOUSING_LABEL_MAP[key] ?: key
+            val decoded = StudentInfoCodeLookup.decode(label, value)
+            if (decoded != null) {
+                fields.add(StudentInfoField(decoded.first, decoded.second))
+            } else {
+                fields.add(StudentInfoField(label, value))
+            }
+        }
+        return fields
+    }
+
+    /**
+     * 对字段列表应用 [StudentInfoCodeLookup] 解码，隐藏内部字段。
+     * 解码在 Repository 层完成，以便后续去重逻辑能识别同一信息的码值/显示值两种形态。
+     */
+    private fun decodeFields(fields: List<StudentInfoField>): List<StudentInfoField> {
+        return fields.mapNotNull { field ->
+            if (StudentInfoCodeLookup.isHiddenField(field.label)) null
+            else {
+                val decoded = StudentInfoCodeLookup.decode(field.label, field.value)
+                if (decoded != null) StudentInfoField(decoded.first, decoded.second) else field
+            }
+        }
+    }
+
+    // ── 通用 form 型 API ────────────────────────────────────
+
+    /**
+     * form 型 API (getDataItemFields)。
+     * parseFormFields 已优先取 _NAME 后缀字段，但 updatedata 未必有 _NAME
+     * （如学生基本信息中性别码/民族码只有原始码值），因此 UI 层通过
+     * [StudentInfoCodeLookup.decode] 做二次解码。
+     */
+    private fun fetchNamedFields(
         dataItems: List<JsonObject>,
         itemName: String,
         username: String
@@ -122,276 +187,34 @@ class StudentInfoRepository(
         val item = dataItems.firstOrNull {
             it.get("NAME")?.asString == itemName || it.get("DATATYPENAME")?.asString == itemName
         } ?: return emptyList()
-
-        val path = item.get("CKLZ")?.asString?.takeIf { it.isNotBlank() } ?: return emptyList()
-        val detail = fetchDetailPage(path)
-        val formId = fetchFormId(detail) ?: return emptyList()
-        val formJson = fetchFormHtml(detail, formId, username)
-        val fields = parseFormFields(formJson)
         val total = item.get("TOTE")?.asString
-
-        return if (fields.isEmpty() && !total.isNullOrBlank()) {
+        val fields = runCatching { client.getDataItemFields(item, username) }.getOrNull().orEmpty()
+        return if (fields.isEmpty() && !total.isNullOrBlank() && total != "0") {
             listOf(StudentInfoField("记录数", total))
         } else {
             fields
         }
     }
 
-    private fun fetchDetailPage(path: String): DetailPage {
-        val normalizedPath = path.trimStart('/')
-        val request = Request.Builder()
-            .url("$TP_EP_BASE/$normalizedPath")
-            .header("User-Agent", UA)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Referer", "$TP_EP_BASE/view?m=ep&role=$STUDENT_ROLE_ID&type=1#act=ep/data/database")
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            val html = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw Exception("个人信息明细页错误 HTTP ${response.code}")
-            }
-            return DetailPage(
-                pageId = extractJsValue(html, "page_id")
-                    ?: throw Exception("未找到 $path 的 page_id"),
-                menuId = extractJsValue(html, "menu_id")
-                    ?: normalizedPath.substringAfterLast('/'),
-                templateId = extractJsValue(html, "template_id")
-                    ?: throw Exception("未找到 $path 的 template_id")
-            )
-        }
-    }
-
-    private fun fetchFormId(detail: DetailPage): String? {
-        val json = postJson(
-            path = "/cp/templateButtonForm/getFormId",
-            body = mapOf(
-                "page_id" to detail.pageId,
-                "template_id" to detail.templateId,
-                "tab_id" to "",
-                "system_type" to "ep"
-            ),
-            referer = "$TP_EP_BASE/view?m=ep&role=$STUDENT_ROLE_ID&type=1#act=cp/templateList/p/${detail.menuId}"
-        ).asJsonObject
-        return json.get("RESOURCE_ID")?.asString
-    }
-
-    private fun fetchFormHtml(detail: DetailPage, formId: String, username: String): JsonObject {
-        return postJson(
-            path = "/cp/templateButtonForm/getFormHtml",
-            body = mapOf(
-                "form_id" to formId,
-                "id" to username,
-                "template_id" to detail.templateId,
-                "page_id" to detail.pageId,
-                "systemType" to "ep",
-                "tabid" to "",
-                "form_type" to 3,
-                "menuId" to detail.menuId,
-                "editDetail" to 1,
-                "cp_language" to "",
-                "is_i18n" to "",
-                "is_mobile" to false,
-                "is_update_preview" to ""
-            ),
-            referer = "$TP_EP_BASE/view?m=ep&role=$STUDENT_ROLE_ID&type=1#act=cp/templateList/p/${detail.menuId}"
-        ).asJsonObject
-    }
-
-    private fun parseFormFields(formJson: JsonObject): List<StudentInfoField> {
-        val updatedData = formJson.getAsJsonObject("updatedata") ?: return emptyList()
-        val labels = parseViewListLabels(formJson.get("viewlist")?.asString.orEmpty())
-        return labels.mapNotNull { (key, label) ->
-            val value = updatedData.stringValue(key)
-                ?: updatedData.stringValue("${key}_NAME")
-                ?: updatedData.stringValue("${key}_VALUE")
-            value?.takeIf { it.isNotBlank() }?.let { StudentInfoField(label, it) }
-        }.distinctBy { it.label }
-    }
-
-    private fun parseViewListLabels(viewList: String): List<Pair<String, String>> {
-        return blockRegex.findAll(viewList)
-            .mapNotNull { match ->
-                val block = match.groupValues[1]
-                val label = Regex("""ELEMENT_NAME=([^,}]+)""").find(block)
-                    ?.groupValues?.get(1)?.trim()
-                val column = Regex("""COLUMN_NAME=([^,}]+)""").find(block)
-                    ?.groupValues?.get(1)?.trim()
-                val key = column?.substringAfterLast(".")
-                if (label.isNullOrBlank() || key.isNullOrBlank()) null else key to label
-            }
-            .toList()
-    }
-
-    private fun postJson(
-        path: String,
-        body: Map<String, Any>,
-        referer: String
-    ): com.google.gson.JsonElement {
-        val requestBody = gson.toJson(body)
-            .toRequestBody("application/json; charset=UTF-8".toMediaType())
-        val request = Request.Builder()
-            .url("$TP_EP_BASE$path")
-            .header("User-Agent", UA)
-            .header("Content-Type", "application/json; charset=UTF-8")
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Referer", referer)
-            .post(requestBody)
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
-            Log.e(TAG, "POST $path HTTP ${response.code}, body[:160]=${text.take(160)}")
-            if (!response.isSuccessful) {
-                throw Exception("个人信息接口错误 HTTP ${response.code}: $path")
-            }
-            if (text.contains("cas/login") || text.contains("name=\"lt\"")) {
-                throw SessionExpiredException()
-            }
-            return gson.fromJson(text, com.google.gson.JsonElement::class.java)
-        }
-    }
-
-    private fun JsonObject.field(key: String, label: String): StudentInfoField? {
-        return stringValue(key)?.takeIf { it.isNotBlank() }?.let { StudentInfoField(label, it) }
-    }
-
-    private fun JsonObject.stringValue(key: String): String? {
-        val value = get(key) ?: return null
-        if (value.isJsonNull) return null
-        return runCatching { value.asString }.getOrNull()
-    }
-
-    private data class DetailPage(
-        val pageId: String,
-        val menuId: String,
-        val templateId: String
-    )
-
     companion object {
         private const val TAG = "StudentInfo"
-        private const val TP_EP_BASE = "https://one.ahu.edu.cn/tp_ep_stu"
-        private const val STUDENT_ROLE_ID = "62002108194816"
-        private const val STUDENT_TABLE_URL = "https://one.ahu.edu.cn/tp_ep_stu/view?m=ep"
-        private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 
-        fun parseStudentInfo(html: String): StudentInfo {
-            return StudentInfo(
-                basicFields = extractSectionFields(html, "学生基本信息"),
-                housingFields = extractSectionFields(html, "住宿数据")
-            )
-        }
-
-        private fun extractSectionFields(html: String, title: String): List<StudentInfoField> {
-            val titles = sectionTitleRegex.findAll(html).toList()
-            val titleMatch = titles.firstOrNull { cleanText(it.groupValues[1]) == title }
-                ?: return emptyList()
-            val nextTitle = titles.firstOrNull { it.range.first > titleMatch.range.first }
-            val sectionStart = titleMatch.range.last + 1
-            val sectionEnd = nextTitle?.range?.first ?: html.length
-            val sectionHtml = html.substring(sectionStart, sectionEnd)
-            return parsePairs(sectionHtml)
-        }
-
-        private fun parsePairs(sectionHtml: String): List<StudentInfoField> {
-            val fields = linkedMapOf<String, String>()
-
-            rowRegex.findAll(sectionHtml).forEach { row ->
-                val cells = cellRegex.findAll(row.groupValues[1])
-                    .map { cleanText(it.groupValues[1]) }
-                    .filter { it.isNotBlank() }
-                    .toList()
-                addCellPairs(cells, fields)
-            }
-
-            if (fields.isEmpty()) {
-                val tokens = cleanForFallback(sectionHtml)
-                    .lines()
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                addCellPairs(tokens, fields)
-            }
-
-            return fields.map { StudentInfoField(it.key, it.value) }
-        }
-
-        private fun addCellPairs(cells: List<String>, fields: MutableMap<String, String>) {
-            var index = 0
-            while (index + 1 < cells.size) {
-                val label = normalizeLabel(cells[index])
-                val value = cells[index + 1].trim()
-                if (label.isNotBlank() && value.isNotBlank() && looksLikeLabel(label)) {
-                    fields.putIfAbsent(label, value)
-                    index += 2
-                } else {
-                    index++
-                }
-            }
-        }
-
-        private fun cleanForFallback(html: String): String {
-            return cleanText(
-                html
-                    .replace(scriptRegex, "")
-                    .replace(styleRegex, "")
-                    .replace(blockBreakRegex, "\n")
-            )
-        }
-
-        private fun cleanText(html: String): String {
-            return decodeHtmlEntities(
-                html
-                    .replace(tagRegex, "")
-                    .replace(Regex("""\s+"""), " ")
-                    .trim()
-            )
-        }
-
-        private fun normalizeLabel(value: String): String {
-            return value.trim()
-                .removeSuffix(":")
-                .removeSuffix("：")
-                .trim()
-        }
-
-        private fun looksLikeLabel(value: String): Boolean {
-            if (value.length > 24) return false
-            return value.any { it.isLetterOrDigit() || it in '\u4e00'..'\u9fff' }
-        }
-
-        private fun decodeHtmlEntities(value: String): String {
-            return value
-                .replace("&nbsp;", " ")
-                .replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", "\"")
-                .replace("&#39;", "'")
-                .replace(numericEntityRegex) { match ->
-                    match.groupValues[1].toIntOrNull()?.toChar()?.toString().orEmpty()
-                }
-        }
-
-        private val sectionTitleRegex = Regex(
-            """<div[^>]*class=["'][^"']*\bmydate-title\b[^"']*["'][\s\S]*?<span[^>]*class=["'][^"']*\btext\b[^"']*["'][^>]*>([\s\S]*?)</span>""",
-            setOf(RegexOption.IGNORE_CASE)
+        /** getList 住宿数据: 字段名 → 中文标签 */
+        private val HOUSING_LABEL_MAP: Map<String, String> = mapOf(
+            "JZWH" to "楼栋",
+            "SSFJH" to "宿舍房间",
+            "XQH" to "校区",
+            "CWH" to "床位",
+            "XYBH_NAME" to "学院",
+            "XH" to "学号",
+            "USER_NAME" to "姓名",
         )
-        private val rowRegex = Regex("""<tr[^>]*>([\s\S]*?)</tr>""", RegexOption.IGNORE_CASE)
-        private val cellRegex = Regex("""<t[dh][^>]*>([\s\S]*?)</t[dh]>""", RegexOption.IGNORE_CASE)
-        private val scriptRegex = Regex("""<script[^>]*>[\s\S]*?</script>""", RegexOption.IGNORE_CASE)
-        private val styleRegex = Regex("""<style[^>]*>[\s\S]*?</style>""", RegexOption.IGNORE_CASE)
-        private val blockBreakRegex = Regex("""</?(?:div|p|li|tr|td|th|span|label)[^>]*>""", RegexOption.IGNORE_CASE)
-        private val tagRegex = Regex("""<[^>]+>""")
-        private val numericEntityRegex = Regex("""&#(\d+);""")
-        private val blockRegex = Regex("""\{([^{}]+)\}""")
 
-        private fun extractJsValue(html: String, key: String): String? {
-            return Regex("""cp\.templatelist\.$key\s*=\s*'([^']*)'""")
-                .find(html)
-                ?.groupValues
-                ?.get(1)
-        }
+        /** getList 住宿数据: 不展示的内部字段 */
+        private val HOUSING_SKIP_KEYS: Set<String> = setOf(
+            "ROWNUM", "RESOURCE_ID", "ROW_ID", "SFDR",
+            "GSR_VALUE", "SPJG_VALUE", "SPJG", "SPJG_CPCODE",
+            "IS_VALID", "JZGBH", "XYBH", "RKFS", "RKFS_VALUE",
+        )
     }
 }

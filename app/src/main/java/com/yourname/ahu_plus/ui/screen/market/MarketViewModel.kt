@@ -10,6 +10,7 @@ import com.yourname.ahu_plus.data.model.MarketNotice
 import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.data.remote.market.MarketApi
 import com.yourname.ahu_plus.data.repository.MarketRepository
+import com.yourname.ahu_plus.data.repository.MarketTopicBatch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,10 +32,14 @@ class MarketViewModel(
 
     fun refreshSettingsState() {
         val identities = repository.getAllIdentities()
+        val validIdentityIds = identities.map { it.id }.toSet()
         val selectedIds = repository.getSelectedIdentityIds()
+            .intersect(validIdentityIds)
+            .ifEmpty { validIdentityIds }
         val blockPinned = repository.getBlockPinned()
         val blockKeywords = repository.getBlockKeywords()
         val filterNodeIds = repository.getFilterNodeIds()
+        val marketEnabled = repository.getMarketEnabled()
         val identityCount = identities.size
         _uiState.update {
             it.copy(
@@ -43,6 +48,7 @@ class MarketViewModel(
                 blockPinned = blockPinned,
                 blockKeywords = blockKeywords,
                 filterNodeIds = filterNodeIds,
+                marketEnabled = marketEnabled,
                 hasSavedIdentity = identityCount > 0,
                 school = identities.firstOrNull { it.id in selectedIds }?.school
                     ?: identities.firstOrNull()?.school,
@@ -174,13 +180,30 @@ class MarketViewModel(
         if (query.isBlank()) return
         viewModelScope.launch {
             _uiState.update { it.copy(searchLoading = true, searchError = null) }
-            repository.searchTopics(query, page = 1).fold(
-                onSuccess = { results ->
+            val identities = selectedIdentities()
+            val result = if (identities.size == 1) {
+                val identity = identities.first()
+                repository.searchTopics(query, page = 1, identity = identity.token).map { topics ->
+                    MarketTopicBatch(
+                        topics = topics,
+                        topicSchoolMap = identity.school?.let { school ->
+                            topics.associate { it.id to school }
+                        } ?: emptyMap(),
+                        topicIdentityMap = topics.associate { it.id to identity.token }
+                    )
+                }
+            } else {
+                repository.searchTopicsMulti(query, identities, page = 1)
+            }
+            result.fold(
+                onSuccess = { batch ->
                     _uiState.update {
                         it.copy(
                             searchLoading = false,
-                            searchResults = results,
-                            searchError = null
+                            searchResults = batch.topics,
+                            searchError = null,
+                            topicSchoolMap = it.topicSchoolMap + batch.topicSchoolMap,
+                            topicIdentityMap = it.topicIdentityMap + batch.topicIdentityMap
                         )
                     }
                 },
@@ -202,7 +225,9 @@ class MarketViewModel(
         viewModelScope.launch {
             val updated = _uiState.value.identities.filter { it.id != id }
             repository.saveMarketIdentities(updated)
-            val updatedSelected = _uiState.value.selectedIdentityIds - id
+            val updatedSelected = (_uiState.value.selectedIdentityIds - id)
+                .takeIf { it.isNotEmpty() || updated.isEmpty() }
+                ?: setOf(updated.first().id)
             repository.setSelectedIdentityIds(updatedSelected)
             _uiState.update {
                 it.copy(
@@ -258,6 +283,16 @@ class MarketViewModel(
         }
     }
 
+    // ── 集市功能总开关 ──────────────────────────────────
+    // 关闭后底部导航「集市」Tab 隐藏,主页只剩「首页」「我的」两栏。
+    // 已保存的 token/屏蔽词等本地数据保留,启用后无需重新输入。
+    fun setMarketEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setMarketEnabled(enabled)
+            _uiState.update { it.copy(marketEnabled = enabled) }
+        }
+    }
+
     // ── 屏蔽词 ──────────────────────────────────────────
 
     fun onKeywordInputChanged(value: String) {
@@ -302,10 +337,29 @@ class MarketViewModel(
 
     // ── 核心加载逻辑（多校园 + 客户端过滤） ──────────────────
 
+    private fun selectedIdentities(state: MarketUiState = _uiState.value): List<MarketIdentity> {
+        return state.identities
+            .filter { it.id in state.selectedIdentityIds }
+            .ifEmpty { state.identities.take(1) }
+    }
+
+    private fun activeIdentityToken(state: MarketUiState = _uiState.value): String? {
+        return selectedIdentities(state).firstOrNull()?.token
+            ?: repository.getSavedIdentity()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun identityTokenForTopic(
+        topicId: Long,
+        state: MarketUiState = _uiState.value
+    ): String? {
+        return state.topicIdentityMap[topicId]
+            ?: state.selectedTopicIdentity
+            ?: activeIdentityToken(state)
+    }
+
     private suspend fun loadTopicsPage(page: Int, append: Boolean) {
         val state = _uiState.value
-        val selectedIdentities = state.identities
-            .filter { it.id in state.selectedIdentityIds }
+        val selectedIdentities = selectedIdentities(state)
 
         // 兼容：若多身份列表为空，回退旧单身份
         val tokensToFetch = selectedIdentities.map { it.token }.ifEmpty {
@@ -324,14 +378,26 @@ class MarketViewModel(
         }
 
         try {
-            val (topics, schoolMap) = if (tokensToFetch.size == 1) {
-                val t = repository.getTopics(page).getOrThrow()
+            val batch = if (selectedIdentities.size == 1) {
+                val identity = selectedIdentities.first()
+                val t = repository.getTopics(page, identity.token).getOrThrow()
                 val singleSchool = selectedIdentities.firstOrNull()?.school
-                val map = if (singleSchool != null) t.associate { it.id to singleSchool } else emptyMap()
-                Pair(t, map)
+                MarketTopicBatch(
+                    topics = t,
+                    topicSchoolMap = if (singleSchool != null) t.associate { it.id to singleSchool } else emptyMap(),
+                    topicIdentityMap = t.associate { it.id to identity.token }
+                )
+            } else if (selectedIdentities.isEmpty()) {
+                val token = tokensToFetch.first()
+                val t = repository.getTopics(page, token).getOrThrow()
+                MarketTopicBatch(
+                    topics = t,
+                    topicIdentityMap = t.associate { it.id to token }
+                )
             } else {
                 repository.getTopicsMulti(selectedIdentities, page).getOrThrow()
             }
+            val topics = batch.topics
 
             // 客户端过滤
             val nodeIdByName = MarketApi.DEFAULT_NODES.associate { it.name to it.id }
@@ -359,7 +425,16 @@ class MarketViewModel(
             _uiState.update { s ->
                 s.copy(
                     topics = merged,
-                    topicSchoolMap = if (append) s.topicSchoolMap + schoolMap else schoolMap,
+                    topicSchoolMap = if (append) {
+                        s.topicSchoolMap + batch.topicSchoolMap
+                    } else {
+                        batch.topicSchoolMap
+                    },
+                    topicIdentityMap = if (append) {
+                        s.topicIdentityMap + batch.topicIdentityMap
+                    } else {
+                        batch.topicIdentityMap
+                    },
                     currentPage = page,
                     hasMoreTopics = topics.isNotEmpty(),
                     isLoading = false,
@@ -380,9 +455,11 @@ class MarketViewModel(
 
     fun openTopic(topic: MarketTopic) {
         viewModelScope.launch {
+            val identity = identityTokenForTopic(topic.id)
             _uiState.update {
                 it.copy(
                     selectedTopic = topic,
+                    selectedTopicIdentity = identity,
                     topicDetail = topic,
                     detailLoading = true,
                     detailError = null,
@@ -395,8 +472,8 @@ class MarketViewModel(
                     commentsError = null
                 )
             }
-            loadTopicDetail(topic.id)
-            loadCommentsPage(topic.id, page = 1, append = false)
+            loadTopicDetail(topic.id, identity)
+            loadCommentsPage(topic.id, page = 1, append = false, identity = identity)
         }
     }
 
@@ -439,7 +516,7 @@ class MarketViewModel(
                     noticesError = null
                 )
             }
-            loadNoticesPage(page = 1, append = false)
+            loadNoticesPage(page = 1, append = false, identity = activeIdentityToken())
         }
     }
 
@@ -448,12 +525,16 @@ class MarketViewModel(
         if (state.noticesLoadingMore || state.noticesLoading || !state.hasMoreNotices) return
         viewModelScope.launch {
             _uiState.update { it.copy(noticesLoadingMore = true, noticesError = null) }
-            loadNoticesPage(page = state.noticesPage + 1, append = true)
+            loadNoticesPage(
+                page = state.noticesPage + 1,
+                append = true,
+                identity = activeIdentityToken(state)
+            )
         }
     }
 
-    private suspend fun loadNoticesPage(page: Int, append: Boolean) {
-        repository.getNotices(page).fold(
+    private suspend fun loadNoticesPage(page: Int, append: Boolean, identity: String?) {
+        repository.getNotices(page, identity).fold(
             onSuccess = { noticePage ->
                 _uiState.update { state ->
                     val merged = if (append) {
@@ -488,13 +569,30 @@ class MarketViewModel(
         if (!_uiState.value.hasSavedIdentity) return
         viewModelScope.launch {
             _uiState.update { it.copy(hotLoading = true, hotError = null) }
-            repository.getTopTopics().fold(
-                onSuccess = { topics ->
+            val identities = selectedIdentities()
+            val result = if (identities.size == 1) {
+                val identity = identities.first()
+                repository.getTopTopics(identity.token).map { topics ->
+                    MarketTopicBatch(
+                        topics = topics,
+                        topicSchoolMap = identity.school?.let { school ->
+                            topics.associate { it.id to school }
+                        } ?: emptyMap(),
+                        topicIdentityMap = topics.associate { it.id to identity.token }
+                    )
+                }
+            } else {
+                repository.getTopTopicsMulti(identities)
+            }
+            result.fold(
+                onSuccess = { batch ->
                     _uiState.update {
                         it.copy(
-                            hotTopics = topics,
+                            hotTopics = batch.topics,
                             hotLoading = false,
-                            hotError = null
+                            hotError = null,
+                            topicSchoolMap = it.topicSchoolMap + batch.topicSchoolMap,
+                            topicIdentityMap = it.topicIdentityMap + batch.topicIdentityMap
                         )
                     }
                 },
@@ -514,6 +612,7 @@ class MarketViewModel(
         _uiState.update {
             it.copy(
                 selectedTopic = null,
+                selectedTopicIdentity = null,
                 topicDetail = null,
                 detailLoading = false,
                 detailError = null,
@@ -623,7 +722,8 @@ class MarketViewModel(
                 title = state.composeTitle.trim(),
                 content = content,
                 nodeId = state.composeNodeId,
-                isAnon = state.composeIsAnon
+                isAnon = state.composeIsAnon,
+                identity = activeIdentityToken(state)
             ).fold(
                 onSuccess = { newId ->
                     _uiState.update {
@@ -728,7 +828,8 @@ class MarketViewModel(
                 content = content,
                 commentId = target?.commentId ?: 0L,
                 replyId = target?.replyId ?: 0L,
-                targetUserId = target?.targetUserId ?: 0L
+                targetUserId = target?.targetUserId ?: 0L,
+                identity = identityTokenForTopic(topicId, state)
             ).fold(
                 onSuccess = { newComment ->
                     _uiState.update { current ->
@@ -773,6 +874,7 @@ class MarketViewModel(
 
     fun retryDetail() {
         val topicId = _uiState.value.selectedTopic?.id ?: return
+        val identity = identityTokenForTopic(topicId)
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -782,15 +884,26 @@ class MarketViewModel(
                     commentsError = null
                 )
             }
-            loadTopicDetail(topicId)
+            loadTopicDetail(topicId, identity)
             if (_uiState.value.comments.isEmpty()) {
-                loadCommentsPage(topicId, page = 1, append = false)
+                loadCommentsPage(topicId, page = 1, append = false, identity = identity)
             }
         }
     }
 
-    private suspend fun loadTopicDetail(topicId: Long) {
-        repository.getTopic(topicId).fold(
+    /**
+     * 拉取一个 topic 的全部评论（含楼中楼回复），用于导出帖子图片。
+     * 调用方负责把结果传给导出工具。
+     */
+    suspend fun loadFullCommentsForExport(
+        topicId: Long,
+        identity: String?
+    ): Result<List<MarketComment>> {
+        return repository.loadAllCommentsWithReplies(topicId = topicId, identity = identity)
+    }
+
+    private suspend fun loadTopicDetail(topicId: Long, identity: String?) {
+        repository.getTopic(topicId, identity).fold(
             onSuccess = { detail ->
                 _uiState.update {
                     it.copy(topicDetail = detail, detailLoading = false, detailError = null)
@@ -818,7 +931,12 @@ class MarketViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(commentsLoadingMore = true, commentsError = null) }
-            loadCommentsPage(topicId, page = state.commentsPage + 1, append = true)
+            loadCommentsPage(
+                topicId = topicId,
+                page = state.commentsPage + 1,
+                append = true,
+                identity = identityTokenForTopic(topicId, state)
+            )
         }
     }
 
@@ -841,7 +959,8 @@ class MarketViewModel(
                 topicId = topicId,
                 commentId = comment.id,
                 page = nextPage,
-                pageSize = pageSize
+                pageSize = pageSize,
+                identity = identityTokenForTopic(topicId, state)
             ).fold(
                 onSuccess = { replyPage ->
                     _uiState.update { current ->
@@ -866,8 +985,13 @@ class MarketViewModel(
         }
     }
 
-    private suspend fun loadCommentsPage(topicId: Long, page: Int, append: Boolean) {
-        repository.getComments(topicId = topicId, page = page).fold(
+    private suspend fun loadCommentsPage(
+        topicId: Long,
+        page: Int,
+        append: Boolean,
+        identity: String?
+    ) {
+        repository.getComments(topicId = topicId, page = page, identity = identity).fold(
             onSuccess = { comments ->
                 _uiState.update { state ->
                     val merged = if (append) {
@@ -906,6 +1030,7 @@ data class MarketUiState(
     val identityError: String? = null,
     val topics: List<MarketTopic> = emptyList(),
     val topicSchoolMap: Map<Long, String> = emptyMap(),
+    val topicIdentityMap: Map<Long, String> = emptyMap(),
     val currentPage: Int = 0,
     val hasMoreTopics: Boolean = true,
     val isLoading: Boolean = false,
@@ -916,6 +1041,7 @@ data class MarketUiState(
     val hotLoading: Boolean = false,
     val hotError: String? = null,
     val selectedTopic: MarketTopic? = null,
+    val selectedTopicIdentity: String? = null,
     val topicDetail: MarketTopic? = null,
     val detailLoading: Boolean = false,
     val detailError: String? = null,
@@ -962,6 +1088,7 @@ data class MarketUiState(
     val blockKeywords: List<String> = emptyList(),
     val keywordInput: String = "",
     val filterNodeIds: List<Long> = emptyList(),
+    val marketEnabled: Boolean = true,
     // ── 搜索 ─────────────────────────────────────
     val isSearching: Boolean = false,
     val searchQuery: String = "",

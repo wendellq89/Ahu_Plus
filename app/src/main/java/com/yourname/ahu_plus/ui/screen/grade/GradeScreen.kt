@@ -37,8 +37,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.jw.GpaMetadata
 import com.yourname.ahu_plus.data.model.jw.Grade
 import com.yourname.ahu_plus.data.model.jw.SemesterGpaEntry
+import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 
 // ── 语义色 ──
 private val Score90 = Color(0xFFE53935)
@@ -82,7 +81,7 @@ fun GradeScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            AhuTopAppBar(
                 title = {
                     Column {
                         Text("成绩查询")
@@ -104,10 +103,7 @@ fun GradeScreen(
                     IconButton(onClick = viewModel::onRefresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background

@@ -130,14 +130,40 @@ class GradeRepository(
 
         /** Extract a single-quoted number value from JS object text. */
         private fun extractJsNum(text: String, key: String): String? {
-            val m = Regex("'$key':([\\d.]+)").find(text) ?: return null
+            val m = Regex("'$key':\\s*([\\d.]+)").find(text) ?: return null
             return m.groupValues[1]
         }
 
         /** Extract a single-quoted int value from JS object text. */
         private fun extractJsInt(text: String, key: String): Int? {
-            val m = Regex("'$key':(\\d+)").find(text) ?: return null
+            val m = Regex("'$key':\\s*(\\d+)").find(text) ?: return null
             return m.groupValues[1].toIntOrNull()
+        }
+
+        /**
+         * 返回 gpaSemesterModel JS 对象中 `gpaSemesterSubs` 数组之后的部分。
+         * 所有顶层聚合值(totalCredits/inPlanCredits/majorRank 等)都在 subs 数组之后。
+         */
+        private fun findAfterSubsArray(jsText: String): String {
+            val subsKey = "'gpaSemesterSubs':"
+            val start = jsText.indexOf(subsKey)
+            if (start < 0) return jsText // fallback
+            var pos = start + subsKey.length
+            // skip whitespace
+            while (pos < jsText.length && jsText[pos] in " \t") pos++
+            if (pos >= jsText.length || jsText[pos] != '[') return jsText
+            // bracket matching to find end of array
+            var depth = 0
+            for (i in pos until jsText.length) {
+                when (jsText[i]) {
+                    '[' -> depth++
+                    ']' -> {
+                        depth--
+                        if (depth == 0) return jsText.substring(i + 1)
+                    }
+                }
+            }
+            return jsText // fallback
         }
 
         /**
@@ -151,15 +177,17 @@ class GradeRepository(
         fun parseGpaFromHtml(html: String): GpaMetadata? {
             val modelMatch = GPA_MODEL_REGEX.find(html) ?: return null
             val jsText = modelMatch.groupValues[1]
-            // Top-level prefix: everything before 'gpaSemesterSubs' (avoids matching subs values)
+            // 'gpa' is before gpaSemesterSubs, all other top-level values are AFTER the subs array
             val prefix = jsText.substringBefore("'gpaSemesterSubs'")
-
             val gpa = extractJsNum(prefix, "gpa")?.toDoubleOrNull()
-            val totalCredits = extractJsNum(prefix, "totalCredits")?.toDoubleOrNull()
-            val inPlanCredits = extractJsNum(prefix, "inPlanCredits")?.toDoubleOrNull()
-            val outPlanCredits = extractJsNum(prefix, "outPlanCredits")?.toDoubleOrNull()
-            val majorRank = extractJsInt(prefix, "majorRank")
-            val majorHeadCount = extractJsInt(prefix, "majorHeadCount")
+
+            // Extract top-level values from AFTER the subs array (skip sub-entry values)
+            val afterSubs = findAfterSubsArray(jsText)
+            val totalCredits = extractJsNum(afterSubs, "totalCredits")?.toDoubleOrNull()
+            val inPlanCredits = extractJsNum(afterSubs, "inPlanCredits")?.toDoubleOrNull()
+            val outPlanCredits = extractJsNum(afterSubs, "outPlanCredits")?.toDoubleOrNull()
+            val majorRank = extractJsInt(afterSubs, "majorRank")
+            val majorHeadCount = extractJsInt(afterSubs, "majorHeadCount")
 
             // Parse semester subs array
             val subs = mutableListOf<SemesterGpaEntry>()
