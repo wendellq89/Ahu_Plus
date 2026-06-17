@@ -4,9 +4,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Storefront
@@ -42,6 +44,7 @@ import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
 import com.yourname.ahu_plus.data.repository.StudentInfoRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
+import com.yourname.ahu_plus.ui.screen.apps.AppHubScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.DashboardScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
@@ -62,7 +65,8 @@ import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
 
 private const val TAB_HOME = 0
 private const val TAB_MARKET = 1
-private const val TAB_PROFILE = 2
+private const val TAB_APPS = 2
+private const val TAB_PROFILE = 3
 
 private const val HOME_DASHBOARD = 0
 private const val HOME_SCHEDULE = 1
@@ -101,6 +105,7 @@ fun MainScreen(
     // 跨 Tab 跳转目标:Dashboard 常用应用点击「浴室/空调/照明/网费」时使用
     // 切到「我的」Tab 并把 scrollTarget 透传给 ProfileScreen,滚动到对应卡片后清空
     var profileScrollTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var profileSubPage by rememberSaveable { mutableStateOf<String?>(null) }
     var openCardAnalytics by rememberSaveable { mutableStateOf(false) }
 
     // 系统返回键:仅处理首页的子页面回退 (集市/我的子页面由各自 BackHandler 处理)
@@ -195,6 +200,18 @@ fun MainScreen(
                         label = { Text("集市") }
                     )
                 }
+                NavigationBarItem(
+                    selected = selectedTab == TAB_APPS,
+                    onClick = { selectedTab = TAB_APPS },
+                    icon = {
+                        Icon(
+                            imageVector = if (selectedTab == TAB_APPS) Icons.Filled.Apps
+                            else Icons.Outlined.Apps,
+                            contentDescription = "应用"
+                        )
+                    },
+                    label = { Text("应用") }
+                )
                 NavigationBarItem(
                     selected = selectedTab == TAB_PROFILE,
                     onClick = { selectedTab = TAB_PROFILE },
@@ -314,7 +331,18 @@ fun MainScreen(
                     }
                 }
                 selectedTab == TAB_MARKET -> MarketScreen(viewModel = marketViewModel)
-                else -> ProfileScreen(
+                selectedTab == TAB_APPS -> AppHubScreen(
+                    scheduleViewModel = scheduleViewModel,
+                    gradeViewModel = gradeViewModel,
+                    examViewModel = examViewModel,
+                    cardViewModel = cardViewModel,
+                    jwcNoticeListViewModel = jwcNoticeListViewModel,
+                    studentInfoViewModel = studentInfoViewModel,
+                    financeViewModel = financeViewModel,
+                    attendanceViewModel = attendanceViewModel,
+                    onNeedsLogin = onReauth
+                )
+                selectedTab == TAB_PROFILE -> ProfileScreen(
                     cardViewModel = cardViewModel,
                     marketViewModel = marketViewModel,
                     studentInfoViewModel = studentInfoViewModel,
@@ -330,9 +358,41 @@ fun MainScreen(
                     onShowCompletedExamsChanged = { scheduleViewModel.setShowCompletedExams(it) },
                     scrollTarget = profileScrollTarget,
                     onScrollTargetConsumed = { profileScrollTarget = null },
+                    profileSubPage = profileSubPage,
+                    onProfileSubPageConsumed = { profileSubPage = null },
                     openCardAnalytics = openCardAnalytics,
                     onCardAnalyticsConsumed = { openCardAnalytics = false },
                     onLogout = onLogout
+                )
+                else -> DashboardScreen(
+                    viewModel = scheduleViewModel,
+                    noticeViewModel = jwcNoticeViewModel,
+                    onOpenSchedule = { homePage = HOME_SCHEDULE },
+                    onOpenCard = { homePage = HOME_BILLS },
+                    onOpenNoticeList = { homePage = HOME_NOTICE_LIST },
+                    onOpenGrade = { homePage = HOME_GRADE },
+                    onOpenExam = { homePage = HOME_EXAM },
+                    onOpenBathroom = {
+                        selectedTab = TAB_PROFILE
+                        profileScrollTarget = "bathroom"
+                    },
+                    onOpenAc = {
+                        selectedTab = TAB_PROFILE
+                        profileScrollTarget = "ac"
+                    },
+                    onOpenLighting = {
+                        selectedTab = TAB_PROFILE
+                        profileScrollTarget = "lighting"
+                    },
+                    onOpenInternet = {
+                        selectedTab = TAB_PROFILE
+                        profileScrollTarget = "internet"
+                    },
+                    onOpenCardAnalytics = {
+                        selectedTab = TAB_PROFILE
+                        openCardAnalytics = true
+                    },
+                    onNeedsLogin = onReauth
                 )
             }
         }

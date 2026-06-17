@@ -128,6 +128,8 @@ fun ProfileScreen(
     onShowCompletedExamsChanged: (Boolean) -> Unit = {},
     scrollTarget: String? = null,
     onScrollTargetConsumed: () -> Unit = {},
+    profileSubPage: String? = null,
+    onProfileSubPageConsumed: () -> Unit = {},
     openCardAnalytics: Boolean = false,
     onCardAnalyticsConsumed: () -> Unit = {},
     onLogout: () -> Unit
@@ -163,6 +165,19 @@ fun ProfileScreen(
         if (target == "bathroom" || target == "ac" || target == "lighting" || target == "internet") {
             openUtility(target)
             onScrollTargetConsumed()
+        }
+    }
+
+    LaunchedEffect(profileSubPage) {
+        when (profileSubPage) {
+            "myInfoHub" -> showMyInfoHub = true
+            "finance" -> showFinance = true
+            "attendance" -> showAttendance = true
+            "settings" -> showSettings = true
+            "cardAnalytics" -> showCardAnalytics = true
+        }
+        if (profileSubPage != null) {
+            onProfileSubPageConsumed()
         }
     }
 
@@ -839,7 +854,7 @@ private fun AppThemeMode.descriptionText(): String = when (this) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MyInfoHubScreen(
+fun MyInfoHubScreen(
     studentInfoUiState: StudentInfoUiState,
     financeUiState: FinanceUiState,
     attendanceUiState: AttendanceUiState,
@@ -991,7 +1006,7 @@ private fun MyInfoHubRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryDetailScreen(
+fun CategoryDetailScreen(
     title: String,
     fields: List<StudentInfoField>,
     isLoading: Boolean,
@@ -1426,7 +1441,7 @@ private fun SettingsRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WaterElectricityUtilityDetailScreen(
+fun WaterElectricityUtilityDetailScreen(
     bathroomData: com.yourname.ahu_plus.data.model.BathroomBalanceData?,
     bathroomLoading: Boolean,
     bathroomError: String?,
@@ -1459,9 +1474,10 @@ private fun WaterElectricityUtilityDetailScreen(
     onRefreshLightingBills: () -> Unit,
     onRefreshInternetBills: () -> Unit,
     onAcBillRangeSelected: (ElectricityBillRange) -> Unit,
-    onLightingBillRangeSelected: (ElectricityBillRange) -> Unit
+    onLightingBillRangeSelected: (ElectricityBillRange) -> Unit,
+    initialUtility: String? = null
 ) {
-    var selectedUtility by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedUtility by rememberSaveable { mutableStateOf(initialUtility) }
 
     LaunchedEffect(Unit) {
         onRefreshAcBills()
@@ -1614,7 +1630,7 @@ private fun ClickableUtilityCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BathroomUtilityDetailScreen(
+fun BathroomUtilityDetailScreen(
     data: com.yourname.ahu_plus.data.model.BathroomBalanceData?,
     isLoading: Boolean,
     error: String?,
@@ -1648,7 +1664,7 @@ private fun BathroomUtilityDetailScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ElectricityUtilityDetailScreen(
+fun ElectricityUtilityDetailScreen(
     title: String,
     state: ElectricityState,
     bills: List<ElectricityDailyRecord>,
@@ -1696,7 +1712,7 @@ private fun ElectricityUtilityDetailScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InternetUtilityDetailScreen(
+fun InternetUtilityDetailScreen(
     data: InternetBalanceData?,
     isLoading: Boolean,
     error: String?,
@@ -2223,7 +2239,7 @@ private fun StudentInfo.classOrMajor(): String? {
 // ─── 财务汇总 ──────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FinanceDetailScreen(
+fun FinanceDetailScreen(
     uiState: FinanceUiState,
     onBack: () -> Unit,
     onRefresh: () -> Unit
@@ -2343,7 +2359,7 @@ private fun FinanceEmptyWithUpdate(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AttendanceListScreen(
+fun AttendanceListScreen(
     uiState: AttendanceUiState,
     onBack: () -> Unit,
     onRefresh: () -> Unit
