@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Room
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.HorizontalDivider
@@ -47,6 +49,8 @@ import com.yourname.ahu_plus.ui.components.AhuSectionTitle
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
+import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
+import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
 import com.yourname.ahu_plus.ui.screen.exam.ExamScreen
 import com.yourname.ahu_plus.ui.screen.exam.ExamViewModel
 import com.yourname.ahu_plus.ui.screen.grade.GradeScreen
@@ -66,6 +70,8 @@ import com.yourname.ahu_plus.ui.screen.profile.MyInfoHubScreen
 import com.yourname.ahu_plus.ui.screen.profile.StudentInfoViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleScreen
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
+import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanScreen
+import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
 import com.yourname.ahu_plus.ui.theme.AhuBlue
 import com.yourname.ahu_plus.ui.theme.AhuGreen
 import com.yourname.ahu_plus.ui.theme.AhuIndigo
@@ -90,13 +96,17 @@ private const val PAGE_STUDENT_BASIC_INFO = "studentBasicInfo"
 private const val PAGE_HOUSING_INFO = "housingInfo"
 private const val PAGE_ACADEMIC_WARNING = "academicWarning"
 private const val PAGE_FINANCE = "finance"
+private const val PAGE_TRAINING_PLAN = "trainingPlan"
 private const val PAGE_ATTENDANCE = "attendance"
+private const val PAGE_EMPTY_CLASSROOM = "emptyClassroom"
 
 @Composable
 fun AppHubScreen(
     scheduleViewModel: ScheduleViewModel,
     gradeViewModel: GradeViewModel,
     examViewModel: ExamViewModel,
+    trainingPlanViewModel: TrainingPlanViewModel,
+    emptyClassroomViewModel: EmptyClassroomViewModel,
     cardViewModel: HomeViewModel,
     jwcNoticeListViewModel: JwcNoticeListViewModel,
     studentInfoViewModel: StudentInfoViewModel,
@@ -118,7 +128,7 @@ fun AppHubScreen(
     BackHandler(enabled = currentPage != null) {
         currentPage = when (currentPage) {
             PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING,
-            PAGE_FINANCE, PAGE_ATTENDANCE -> PAGE_MY_INFO_HUB
+            PAGE_FINANCE -> PAGE_MY_INFO_HUB
             else -> null
         }
     }
@@ -137,6 +147,16 @@ fun AppHubScreen(
         )
         PAGE_EXAM -> ExamScreen(
             viewModel = examViewModel,
+            onBack = { currentPage = null },
+            onNeedsLogin = onNeedsLogin
+        )
+        PAGE_TRAINING_PLAN -> TrainingPlanScreen(
+            viewModel = trainingPlanViewModel,
+            onBack = { currentPage = null },
+            onNeedsLogin = onNeedsLogin
+        )
+        PAGE_EMPTY_CLASSROOM -> EmptyClassroomScreen(
+            viewModel = emptyClassroomViewModel,
             onBack = { currentPage = null },
             onNeedsLogin = onNeedsLogin
         )
@@ -303,6 +323,16 @@ private fun AppHubPage(
             item {
                 AppHubItem("考试", Icons.AutoMirrored.Filled.EventNote, AhuOrange) {
                     onNavigate(PAGE_EXAM)
+                }
+            }
+            item {
+                AppHubItem("培养方案进度", Icons.Filled.School, Color(0xFF6C63FF)) {
+                    onNavigate(PAGE_TRAINING_PLAN)
+                }
+            }
+            item {
+                AppHubItem("空教室查询", Icons.Filled.Room, AhuGreen) {
+                    onNavigate(PAGE_EMPTY_CLASSROOM)
                 }
             }
 

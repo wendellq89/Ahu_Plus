@@ -73,6 +73,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private var cachedFinanceUpdatedAt: Long = 0L
     private var cachedAttendanceJson: String? = null
     private var cachedAttendanceUpdatedAt: Long = 0L
+    private var cachedKqcardAttendanceJson: String? = null
+    private var cachedKqcardAttendanceUpdatedAt: Long = 0L
     private var cachedUserScheduleJson: String? = null
     private var cachedAssessmentJson: String? = null
     private var cachedAssessmentUpdatedAt: Long = 0L
@@ -86,6 +88,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private var cachedAcConfig: ElectricityRoomConfig = ElectricityRoomConfig()
     private var cachedLightingConfig: ElectricityRoomConfig = ElectricityRoomConfig()
     private var cachedAdwmhSessionId: String? = null
+    private var cachedTrainingPlanJson: String? = null
+    private var cachedTrainingPlanUpdatedAt: Long = 0L
+    private var cachedEmptyClassroomJson: String? = null
+    private var cachedEmptyClassroomKey: String? = null
+    private var cachedEmptyClassroomUpdatedAt: Long = 0L
 
     val themeModeFlow = appDataStore.dataStore.data.map { preferences ->
         AppThemeMode.fromStorageValue(preferences[THEME_MODE_KEY])
@@ -169,6 +176,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedFinanceUpdatedAt = prefs[FINANCE_UPDATED_AT_KEY] ?: 0L
         cachedAttendanceJson = prefs[ATTENDANCE_JSON_KEY]
         cachedAttendanceUpdatedAt = prefs[ATTENDANCE_UPDATED_AT_KEY] ?: 0L
+        cachedKqcardAttendanceJson = prefs[KQCARD_ATTENDANCE_JSON_KEY]
+        cachedKqcardAttendanceUpdatedAt = prefs[KQCARD_ATTENDANCE_UPDATED_AT_KEY] ?: 0L
         cachedUserScheduleJson = prefs[USER_SCHEDULE_JSON_KEY]
         cachedAssessmentJson = prefs[ASSESSMENT_JSON_KEY]
         cachedAssessmentUpdatedAt = prefs[ASSESSMENT_UPDATED_AT_KEY] ?: 0L
@@ -182,6 +191,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedAcConfig = parseElectricityConfig(prefs[AC_CONFIG_KEY])
         cachedLightingConfig = parseElectricityConfig(prefs[LIGHTING_CONFIG_KEY])
         cachedAdwmhSessionId = prefs[ADWMH_SESSION_KEY]
+        cachedTrainingPlanJson = prefs[TRAINING_PLAN_JSON_KEY]
+        cachedTrainingPlanUpdatedAt = prefs[TRAINING_PLAN_UPDATED_AT_KEY] ?: 0L
+        cachedEmptyClassroomJson = prefs[EMPTY_CLASSROOM_JSON_KEY]
+        cachedEmptyClassroomKey = prefs[EMPTY_CLASSROOM_KEY_KEY]
+        cachedEmptyClassroomUpdatedAt = prefs[EMPTY_CLASSROOM_UPDATED_AT_KEY] ?: 0L
 
         initialized = true
         Log.i(
@@ -517,6 +531,30 @@ class SessionManager(private val appDataStore: AppDataStore) {
         }
     }
 
+    // ── kqcard 考勤缓存 ──────────────────────────────
+
+    fun getKqcardAttendanceJson(): String? = cachedKqcardAttendanceJson
+
+    fun getKqcardAttendanceUpdatedAt(): Long = cachedKqcardAttendanceUpdatedAt
+
+    suspend fun saveKqcardAttendanceJson(json: String) {
+        cachedKqcardAttendanceJson = json
+        cachedKqcardAttendanceUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit { preferences ->
+            preferences[KQCARD_ATTENDANCE_JSON_KEY] = json
+            preferences[KQCARD_ATTENDANCE_UPDATED_AT_KEY] = cachedKqcardAttendanceUpdatedAt
+        }
+    }
+
+    suspend fun clearKqcardAttendanceJson() {
+        cachedKqcardAttendanceJson = null
+        cachedKqcardAttendanceUpdatedAt = 0L
+        appDataStore.dataStore.edit { preferences ->
+            preferences.remove(KQCARD_ATTENDANCE_JSON_KEY)
+            preferences.remove(KQCARD_ATTENDANCE_UPDATED_AT_KEY)
+        }
+    }
+
     // ── 用户自定义课表条目 ──────────────────────────────
 
     fun getUserScheduleJson(): String? = cachedUserScheduleJson
@@ -718,6 +756,58 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it.remove(ADWMH_SESSION_KEY) }
     }
 
+    // ── 培养方案完成进度缓存 ──────────────────────────
+
+    fun getTrainingPlanJson(): String? = cachedTrainingPlanJson
+
+    fun getTrainingPlanUpdatedAt(): Long = cachedTrainingPlanUpdatedAt
+
+    suspend fun saveTrainingPlanJson(json: String) {
+        cachedTrainingPlanJson = json
+        cachedTrainingPlanUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit { preferences ->
+            preferences[TRAINING_PLAN_JSON_KEY] = json
+            preferences[TRAINING_PLAN_UPDATED_AT_KEY] = cachedTrainingPlanUpdatedAt
+        }
+    }
+
+    fun getEmptyClassroomJson(): String? = cachedEmptyClassroomJson
+
+    fun getEmptyClassroomKey(): String? = cachedEmptyClassroomKey
+
+    fun getEmptyClassroomUpdatedAt(): Long = cachedEmptyClassroomUpdatedAt
+
+    suspend fun saveEmptyClassroomJson(json: String, cacheKey: String) {
+        cachedEmptyClassroomJson = json
+        cachedEmptyClassroomKey = cacheKey
+        cachedEmptyClassroomUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit { preferences ->
+            preferences[EMPTY_CLASSROOM_JSON_KEY] = json
+            preferences[EMPTY_CLASSROOM_KEY_KEY] = cacheKey
+            preferences[EMPTY_CLASSROOM_UPDATED_AT_KEY] = cachedEmptyClassroomUpdatedAt
+        }
+    }
+
+    suspend fun clearEmptyClassroomJson() {
+        cachedEmptyClassroomJson = null
+        cachedEmptyClassroomKey = null
+        cachedEmptyClassroomUpdatedAt = 0L
+        appDataStore.dataStore.edit { preferences ->
+            preferences.remove(EMPTY_CLASSROOM_JSON_KEY)
+            preferences.remove(EMPTY_CLASSROOM_KEY_KEY)
+            preferences.remove(EMPTY_CLASSROOM_UPDATED_AT_KEY)
+        }
+    }
+
+    suspend fun clearTrainingPlanJson() {
+        cachedTrainingPlanJson = null
+        cachedTrainingPlanUpdatedAt = 0L
+        appDataStore.dataStore.edit { preferences ->
+            preferences.remove(TRAINING_PLAN_JSON_KEY)
+            preferences.remove(TRAINING_PLAN_UPDATED_AT_KEY)
+        }
+    }
+
     /** 清除所有数据(session + 凭据 + JW session + 集市设置) — 用户主动退出登录时调用 */
     suspend fun clearAuthData() {
         cachedSessionId = null
@@ -779,6 +869,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedFinanceUpdatedAt = 0L
         cachedAttendanceJson = null
         cachedAttendanceUpdatedAt = 0L
+        cachedKqcardAttendanceJson = null
+        cachedKqcardAttendanceUpdatedAt = 0L
         cachedUserScheduleJson = null
         cachedAssessmentJson = null
         cachedAssessmentUpdatedAt = 0L
@@ -829,6 +921,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences.remove(FINANCE_UPDATED_AT_KEY)
             preferences.remove(ATTENDANCE_JSON_KEY)
             preferences.remove(ATTENDANCE_UPDATED_AT_KEY)
+            preferences.remove(KQCARD_ATTENDANCE_JSON_KEY)
+            preferences.remove(KQCARD_ATTENDANCE_UPDATED_AT_KEY)
             preferences.remove(USER_SCHEDULE_JSON_KEY)
             preferences.remove(ASSESSMENT_JSON_KEY)
             preferences.remove(ASSESSMENT_UPDATED_AT_KEY)
@@ -886,6 +980,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private val FINANCE_UPDATED_AT_KEY = longPreferencesKey("finance_updated_at")
     private val ATTENDANCE_JSON_KEY = stringPreferencesKey("attendance_json")
     private val ATTENDANCE_UPDATED_AT_KEY = longPreferencesKey("attendance_updated_at")
+    private val KQCARD_ATTENDANCE_JSON_KEY = stringPreferencesKey("kqcard_attendance_json")
+    private val KQCARD_ATTENDANCE_UPDATED_AT_KEY = longPreferencesKey("kqcard_attendance_updated_at")
     private val USER_SCHEDULE_JSON_KEY = stringPreferencesKey("user_schedule_json")
     private val ASSESSMENT_JSON_KEY = stringPreferencesKey("assessment_json")
     private val ASSESSMENT_UPDATED_AT_KEY = longPreferencesKey("assessment_updated_at")
@@ -899,6 +995,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private val AC_CONFIG_KEY = stringPreferencesKey("ac_config")
     private val LIGHTING_CONFIG_KEY = stringPreferencesKey("lighting_config")
     private val ADWMH_SESSION_KEY = stringPreferencesKey("adwmh_jsessionid")
+    private val TRAINING_PLAN_JSON_KEY = stringPreferencesKey("training_plan_json")
+    private val TRAINING_PLAN_UPDATED_AT_KEY = longPreferencesKey("training_plan_updated_at")
+    private val EMPTY_CLASSROOM_JSON_KEY = stringPreferencesKey("empty_classroom_json")
+    private val EMPTY_CLASSROOM_KEY_KEY = stringPreferencesKey("empty_classroom_key")
+    private val EMPTY_CLASSROOM_UPDATED_AT_KEY = longPreferencesKey("empty_classroom_updated_at")
 
     // ── JSON 解析辅助 ──────────────────────────────────
 

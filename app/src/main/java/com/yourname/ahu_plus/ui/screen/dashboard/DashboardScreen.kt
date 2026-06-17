@@ -41,7 +41,9 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Room
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
@@ -113,6 +115,8 @@ fun DashboardScreen(
     onOpenLighting: () -> Unit,
     onOpenInternet: () -> Unit,
     onOpenCardAnalytics: () -> Unit,
+    onOpenTrainingPlan: () -> Unit = {},
+    onOpenEmptyClassroom: () -> Unit = {},
     onAddUserTask: () -> Unit = {},
     onToggleTask: (com.yourname.ahu_plus.data.model.task.RecentTaskItem) -> Unit = {},
     onAddTodayHomework: () -> Unit = {},
@@ -226,7 +230,9 @@ fun DashboardScreen(
                         onOpenAc = onOpenAc,
                         onOpenLighting = onOpenLighting,
                         onOpenInternet = onOpenInternet,
-                        onOpenCardAnalytics = onOpenCardAnalytics
+                        onOpenCardAnalytics = onOpenCardAnalytics,
+                        onOpenTrainingPlan = onOpenTrainingPlan,
+                        onOpenEmptyClassroom = onOpenEmptyClassroom
                     )
                 }
 
@@ -862,7 +868,9 @@ private fun AppDock(
     onOpenAc: () -> Unit,
     onOpenLighting: () -> Unit,
     onOpenInternet: () -> Unit,
-    onOpenCardAnalytics: () -> Unit
+    onOpenCardAnalytics: () -> Unit,
+    onOpenTrainingPlan: () -> Unit = {},
+    onOpenEmptyClassroom: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         AhuSectionTitle(text = "常用应用")
@@ -935,6 +943,22 @@ private fun AppDock(
                 modifier = Modifier.width(78.dp)
             ) {
                 Icon(Icons.Filled.Wifi, contentDescription = null)
+            }
+            AppDockItem(
+                title = "培养方案",
+                iconColor = Color(0xFF6C63FF),
+                onClick = onOpenTrainingPlan,
+                modifier = Modifier.width(78.dp)
+            ) {
+                Icon(Icons.Filled.School, contentDescription = null)
+            }
+            AppDockItem(
+                title = "空教室",
+                iconColor = AhuGreen,
+                onClick = onOpenEmptyClassroom,
+                modifier = Modifier.width(78.dp)
+            ) {
+                Icon(Icons.Filled.Room, contentDescription = null)
             }
             AppDockItem(
                 title = "通告",

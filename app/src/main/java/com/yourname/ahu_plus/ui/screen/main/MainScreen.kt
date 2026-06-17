@@ -60,8 +60,12 @@ import com.yourname.ahu_plus.ui.screen.profile.AttendanceViewModel
 import com.yourname.ahu_plus.ui.screen.profile.FinanceViewModel
 import com.yourname.ahu_plus.ui.screen.profile.ProfileScreen
 import com.yourname.ahu_plus.ui.screen.profile.StudentInfoViewModel
+import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
+import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleScreen
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
+import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanScreen
+import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
 
 private const val TAB_HOME = 0
 private const val TAB_MARKET = 1
@@ -74,6 +78,8 @@ private const val HOME_NOTICE_LIST = 2
 private const val HOME_GRADE = 3
 private const val HOME_EXAM = 4
 private const val HOME_BILLS = 5
+private const val HOME_TRAINING_PLAN = 6
+private const val HOME_EMPTY_CLASSROOM = 7
 
 @Composable
 fun MainScreen(
@@ -165,6 +171,12 @@ fun MainScreen(
     }
     val attendanceViewModel = remember {
         AttendanceViewModel(attendanceRepository, sessionManager)
+    }
+    val trainingPlanViewModel = remember {
+        TrainingPlanViewModel(jwAuthRepository, app.trainingPlanRepository, sessionManager)
+    }
+    val emptyClassroomViewModel = remember {
+        EmptyClassroomViewModel(jwAuthRepository, app.emptyClassroomRepository, sessionManager)
     }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -298,6 +310,16 @@ fun MainScreen(
                                 }
                             )
                         }
+                        HOME_TRAINING_PLAN -> TrainingPlanScreen(
+                            viewModel = trainingPlanViewModel,
+                            onBack = { homePage = HOME_DASHBOARD },
+                            onNeedsLogin = onReauth
+                        )
+                        HOME_EMPTY_CLASSROOM -> EmptyClassroomScreen(
+                            viewModel = emptyClassroomViewModel,
+                            onBack = { homePage = HOME_DASHBOARD },
+                            onNeedsLogin = onReauth
+                        )
                         else -> DashboardScreen(
                             viewModel = scheduleViewModel,
                             noticeViewModel = jwcNoticeViewModel,
@@ -306,6 +328,8 @@ fun MainScreen(
                             onOpenNoticeList = { homePage = HOME_NOTICE_LIST },
                             onOpenGrade = { homePage = HOME_GRADE },
                             onOpenExam = { homePage = HOME_EXAM },
+                            onOpenTrainingPlan = { homePage = HOME_TRAINING_PLAN },
+                            onOpenEmptyClassroom = { homePage = HOME_EMPTY_CLASSROOM },
                             onOpenBathroom = {
                                 selectedTab = TAB_PROFILE
                                 profileScrollTarget = "bathroom"
@@ -335,6 +359,8 @@ fun MainScreen(
                     scheduleViewModel = scheduleViewModel,
                     gradeViewModel = gradeViewModel,
                     examViewModel = examViewModel,
+                    trainingPlanViewModel = trainingPlanViewModel,
+                    emptyClassroomViewModel = emptyClassroomViewModel,
                     cardViewModel = cardViewModel,
                     jwcNoticeListViewModel = jwcNoticeListViewModel,
                     studentInfoViewModel = studentInfoViewModel,

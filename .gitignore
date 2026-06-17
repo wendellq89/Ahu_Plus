@@ -15,6 +15,7 @@ app/build/
 .externalNativeBuild
 .cxx
 local.properties
+.env
 *.log
 *.py[cod]
 __pycache__/

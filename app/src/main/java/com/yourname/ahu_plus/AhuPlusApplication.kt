@@ -10,10 +10,12 @@ import com.yourname.ahu_plus.data.repository.AttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
+import com.yourname.ahu_plus.data.repository.EmptyClassroomRepository
 import com.yourname.ahu_plus.data.repository.ExamRepository
 import com.yourname.ahu_plus.data.repository.FinanceRepository
 import com.yourname.ahu_plus.data.repository.GradeRepository
 import com.yourname.ahu_plus.data.repository.HomeworkRepository
+import com.yourname.ahu_plus.data.repository.TrainingPlanRepository
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
@@ -49,9 +51,13 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var examRepository: ExamRepository
         private set
+    lateinit var emptyClassroomRepository: EmptyClassroomRepository
+        private set
     lateinit var financeRepository: FinanceRepository
         private set
     lateinit var attendanceRepository: AttendanceRepository
+        private set
+    lateinit var trainingPlanRepository: TrainingPlanRepository
         private set
     lateinit var adwmhCardRepository: AdwmhCardRepository
         private set
@@ -88,6 +94,8 @@ class AhuPlusApplication : Application() {
         // 成绩 / 考试 复用 JwAuthRepository 的 CookieJar
         gradeRepository = GradeRepository(jwAuthRepository)
         examRepository = ExamRepository(jwAuthRepository)
+        emptyClassroomRepository = EmptyClassroomRepository(jwAuthRepository)
+        trainingPlanRepository = TrainingPlanRepository(jwAuthRepository)
         // 财务汇总 / 考勤缺勤 复用 studentInfoRepository 的 SSO 会话 (tp_ep_stu)
         financeRepository = FinanceRepository(sessionManager, casAuthRepository)
         attendanceRepository = AttendanceRepository(sessionManager, casAuthRepository)
