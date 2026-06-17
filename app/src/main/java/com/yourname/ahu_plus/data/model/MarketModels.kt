@@ -17,7 +17,16 @@ data class MarketTopic(
     val userInfo: MarketUser? = null,
     val schoolSubAddress: String? = null,
     val likeCount: Int = 0,
-    val commentCount: Int = 0
+    val commentCount: Int = 0,
+    /**
+     * 列表接口返回的「前两条热门评论」(如果后端有给)。
+     * - 默认 emptyList() 兜底,Gson 宽容解析接口不返回也不会报错
+     * - 多个 SerializedName 兜底不同字段名(top_comments / preview_comments / hot_comments)
+     * - 嵌套 List<MarketComment> 解析会被 `JsonUtils.parseRowsSafe` 的
+     *   `isFilteredZeroId` 过滤掉 id=0 的脏数据,符合「接口字段不一定返回」的现状
+     */
+    @SerializedName(value = "top_comments", alternate = ["preview_comments", "hot_comments"])
+    val topComments: List<MarketComment> = emptyList()
 )
 
 /**

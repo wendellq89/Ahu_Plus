@@ -358,6 +358,14 @@ class MarketRepository(
         sessionManager.setMarketEnabled(enabled)
     }
 
+    // ── 集市列表布局模式 ────────────────────────────────
+    // "list" 单列 / "stagger" 小红书双列瀑布
+    fun getListLayoutMode(): String = sessionManager.getListLayoutMode()
+
+    suspend fun setListLayoutMode(mode: String) {
+        sessionManager.setListLayoutMode(mode)
+    }
+
     /**
      * 多校园身份：并发拉取每个 token 的 topics，合并去重。
      * @return (合并后的帖子列表, topicId → 学校名的映射)

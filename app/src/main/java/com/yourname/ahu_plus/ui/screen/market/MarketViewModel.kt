@@ -40,6 +40,7 @@ class MarketViewModel(
         val blockKeywords = repository.getBlockKeywords()
         val filterNodeIds = repository.getFilterNodeIds()
         val marketEnabled = repository.getMarketEnabled()
+        val listLayoutMode = repository.getListLayoutMode()
         val identityCount = identities.size
         _uiState.update {
             it.copy(
@@ -49,11 +50,19 @@ class MarketViewModel(
                 blockKeywords = blockKeywords,
                 filterNodeIds = filterNodeIds,
                 marketEnabled = marketEnabled,
+                listLayoutMode = listLayoutMode,
                 hasSavedIdentity = identityCount > 0,
                 school = identities.firstOrNull { it.id in selectedIds }?.school
                     ?: identities.firstOrNull()?.school,
                 identityInput = ""
             )
+        }
+    }
+
+    fun setListLayoutMode(mode: String) {
+        viewModelScope.launch {
+            repository.setListLayoutMode(mode)
+            _uiState.update { it.copy(listLayoutMode = mode) }
         }
     }
 
@@ -357,6 +366,18 @@ class MarketViewModel(
             ?: activeIdentityToken(state)
     }
 
+    /**
+     * 多校模式：取用户选定的 composeSchoolId 对应 identity 的 token。
+     * 单校模式 / composeSchoolId 未设置：回退到第一个选中 identity 的 token。
+     */
+    private fun resolveComposeToken(state: MarketUiState): String? {
+        val schoolId = state.composeSchoolId
+        if (schoolId != null) {
+            state.identities.firstOrNull { it.id == schoolId }?.let { return it.token }
+        }
+        return activeIdentityToken(state)
+    }
+
     private suspend fun loadTopicsPage(page: Int, append: Boolean) {
         val state = _uiState.value
         val selectedIdentities = selectedIdentities(state)
@@ -644,6 +665,11 @@ class MarketViewModel(
         val current = _uiState.value
         val preferredNode = if (current.composeNodeId > 0L) current.composeNodeId
             else MarketApi.DEFAULT_NODE_ID
+        // 多校模式下,默认选「最近浏览过的帖子所属 identity」,否则选第一个选中 identity。
+        val defaultSchoolId = current.selectedTopicIdentity
+            ?.let { token -> current.identities.firstOrNull { it.token == token }?.id }
+            ?: current.selectedIdentityIds.firstOrNull()
+            ?: current.identities.firstOrNull()?.id
         _uiState.update {
             it.copy(
                 showCompose = true,
@@ -653,11 +679,16 @@ class MarketViewModel(
                 composeContent = "",
                 composeIsAnon = false,
                 composeNodeMenuOpen = false,
+                composeSchoolId = defaultSchoolId,
                 postError = null,
                 postSuccessMessage = null,
                 postedTopicId = null
             )
         }
+    }
+
+    fun setComposeSchoolId(identityId: String) {
+        _uiState.update { it.copy(composeSchoolId = identityId) }
     }
 
     fun closeCompose() {
@@ -723,7 +754,7 @@ class MarketViewModel(
                 content = content,
                 nodeId = state.composeNodeId,
                 isAnon = state.composeIsAnon,
-                identity = activeIdentityToken(state)
+                identity = resolveComposeToken(state)
             ).fold(
                 onSuccess = { newId ->
                     _uiState.update {
@@ -1094,7 +1125,14 @@ data class MarketUiState(
     val searchQuery: String = "",
     val searchResults: List<MarketTopic> = emptyList(),
     val searchLoading: Boolean = false,
-    val searchError: String? = null
+    val searchError: String? = null,
+    // ── 多校发帖路由 ─────────────────────────────
+    // 多校模式下,发新帖用哪个 identity.token。
+    // 单校模式忽略此字段(用唯一那个 identity)。
+    val composeSchoolId: String? = null,
+    // ── 列表布局模式 ──────────────────────────────
+    // "list" 单列 / "stagger" 小红书双列瀑布
+    val listLayoutMode: String = "list"
 )
 
 /**

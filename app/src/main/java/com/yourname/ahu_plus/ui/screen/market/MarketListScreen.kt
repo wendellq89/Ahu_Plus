@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items as staggerItems
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -83,10 +87,19 @@ internal fun MarketListScreen(
     onToggleSchool: (String, Boolean) -> Unit = { _, _ -> },
     onSelectAllSchools: () -> Unit = {}
 ) {
+    val isSingleSchool = uiState.selectedIdentityIds.size <= 1
+    val staggerState = rememberLazyStaggeredGridState()
     val shouldLoadMore by remember(uiState.topics.size, uiState.hasMoreTopics) {
         derivedStateOf {
-            val total = listState.layoutInfo.totalItemsCount
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            // 瀑布流与单列模式共用一个判断：取两个 state 中实际有数据的那个来计算
+            val staggerInfo = staggerState.layoutInfo
+            val useStagger = staggerInfo.totalItemsCount > 0
+            val total = if (useStagger) staggerInfo.totalItemsCount else listState.layoutInfo.totalItemsCount
+            val lastVisible = if (useStagger) {
+                staggerInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            } else {
+                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            }
             total > 0 && lastVisible >= total - 5
         }
     }
@@ -95,7 +108,11 @@ internal fun MarketListScreen(
         if (shouldLoadMore && !uiState.isSearching) onLoadMore()
     }
 
-    Scaffold(
+    // FAB 仅在列表页（一级页）显示：未在搜索/详情/设置/发帖/热榜/消息任一状态时
+    val showFab = uiState.hasSavedIdentity && !uiState.isSearching
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
         topBar = {
             if (uiState.isSearching) {
                 AhuTopAppBar(
@@ -135,14 +152,17 @@ internal fun MarketListScreen(
                     title = { Text("校园集市") },
                     actions = {
                         if (uiState.hasSavedIdentity) {
+                            IconButton(onClick = onOpenSearch) {
+                                Icon(Icons.Filled.Search, contentDescription = "搜索")
+                            }
                             IconButton(onClick = onOpenSettings) {
                                 Icon(Icons.Filled.Settings, contentDescription = "设置")
                             }
-                            IconButton(onClick = onOpenNotices) {
-                                Icon(Icons.Filled.Notifications, contentDescription = "消息")
-                            }
-                            IconButton(onClick = onOpenCompose) {
-                                Icon(Icons.Filled.Add, contentDescription = "发帖")
+                            // 多校模式不显示消息(避免不同学校消息混淆)
+                            if (isSingleSchool) {
+                                IconButton(onClick = onOpenNotices) {
+                                    Icon(Icons.Filled.Notifications, contentDescription = "消息")
+                                }
                             }
                         }
                     }
@@ -167,135 +187,134 @@ internal fun MarketListScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    if (!uiState.hasSavedIdentity) {
-                        item {
-                            IdentityCard(
-                                uiState = uiState,
-                                onIdentityChanged = onIdentityChanged,
-                                onSave = onSaveIdentity,
-                                onClear = onClearIdentity
+                if (uiState.listLayoutMode == "stagger") {
+                    // 小红书双列瀑布流模式
+                    LazyVerticalStaggeredGrid(
+                        columns = StaggeredGridCells.Fixed(2),
+                        state = staggerState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp),
+                        verticalItemSpacing = 10.dp,
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
+                    ) {
+                        staggerItems(uiState.topics, key = { it.id }) { topic ->
+                            StaggerMarketTopicCard(
+                                topic = topic,
+                                onClick = { onOpenTopic(topic) },
+                                school = if (isSingleSchool) null
+                                else uiState.topicSchoolMap[topic.id]
                             )
                         }
-                    } else {
-                        if (uiState.identities.size > 1) {
-                            item {
-                                SchoolSwitcherRow(
-                                    identities = uiState.identities,
-                                    selectedIds = uiState.selectedIdentityIds,
-                                    onToggle = onToggleSchool,
-                                    onSelectAll = onSelectAllSchools
+                        if (uiState.topics.isNotEmpty()) {
+                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                AutoLoadFooter(
+                                    isLoading = uiState.isLoadingMore,
+                                    hasMore = uiState.hasMoreTopics,
+                                    loadingText = "正在加载更多...",
+                                    emptyText = "没有更多帖子了"
                                 )
                             }
                         }
-                        item { HotEntryCard(onClick = onOpenHot) }
-                        item { SearchEntryCard(onClick = onOpenSearch) }
+                        item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                            Spacer(modifier = Modifier.height(72.dp))
+                        }
                     }
-
-                    if (uiState.isLoading) {
-                        item { LoadingRow("正在加载集市...") }
-                    }
-
-                    uiState.error?.let { error ->
-                        item {
-                            StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
-                                TextButton(onClick = onRefresh) { Text("重试") }
+                } else {
+                    // 单列列表模式(默认)
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        if (!uiState.hasSavedIdentity) {
+                            item {
+                                IdentityCard(
+                                    uiState = uiState,
+                                    onIdentityChanged = onIdentityChanged,
+                                    onSave = onSaveIdentity,
+                                    onClear = onClearIdentity
+                                )
+                            }
+                        } else {
+                            if (uiState.identities.size > 1) {
+                                item {
+                                    SchoolSwitcherRow(
+                                        identities = uiState.identities,
+                                        selectedIds = uiState.selectedIdentityIds,
+                                        onToggle = onToggleSchool,
+                                        onSelectAll = onSelectAllSchools
+                                    )
+                                }
+                            }
+                            // 单校模式才显示热榜;多校模式热榜跨校内容会混乱
+                            if (isSingleSchool) {
+                                item { HotEntryCard(onClick = onOpenHot) }
                             }
                         }
-                    }
 
-                    uiState.saveMessage?.let { message ->
-                        item { StatusCard(text = message, color = MarketColors.Success) }
-                    }
+                        if (uiState.isLoading) {
+                            item { LoadingRow("正在加载集市...") }
+                        }
 
-                    if (uiState.hasSavedIdentity && !uiState.isLoading && uiState.error == null &&
-                        uiState.topics.isEmpty()
-                    ) {
-                        item {
-                            StatusCard(
-                                text = "暂时没有加载到集市内容",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        uiState.error?.let { error ->
+                            item {
+                                StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                                    TextButton(onClick = onRefresh) { Text("重试") }
+                                }
+                            }
+                        }
+
+                        uiState.saveMessage?.let { message ->
+                            item { StatusCard(text = message, color = MarketColors.Success) }
+                        }
+
+                        if (uiState.hasSavedIdentity && !uiState.isLoading && uiState.error == null &&
+                            uiState.topics.isEmpty()
+                        ) {
+                            item {
+                                StatusCard(
+                                    text = "暂时没有加载到集市内容",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        items(uiState.topics, key = { it.id }) { topic ->
+                            MarketTopicCard(
+                                topic = topic,
+                                onClick = { onOpenTopic(topic) },
+                                // 单校模式不显示学校标签(避免重复),多校模式显示
+                                school = if (isSingleSchool) null
+                                else uiState.topicSchoolMap[topic.id]
                             )
                         }
-                    }
 
-                    items(uiState.topics, key = { it.id }) { topic ->
-                        MarketTopicCard(
-                            topic = topic,
-                            onClick = { onOpenTopic(topic) },
-                            school = uiState.topicSchoolMap[topic.id]
-                        )
-                    }
-
-                    if (uiState.topics.isNotEmpty()) {
-                        item {
-                            AutoLoadFooter(
-                                isLoading = uiState.isLoadingMore,
-                                hasMore = uiState.hasMoreTopics,
-                                loadingText = "正在加载更多...",
-                                emptyText = "没有更多帖子了"
-                            )
+                        if (uiState.topics.isNotEmpty()) {
+                            item {
+                                AutoLoadFooter(
+                                    isLoading = uiState.isLoadingMore,
+                                    hasMore = uiState.hasMoreTopics,
+                                    loadingText = "正在加载更多...",
+                                    emptyText = "没有更多帖子了"
+                                )
+                            }
                         }
-                    }
 
-                    item { Spacer(modifier = Modifier.height(72.dp)) }
+                        item { Spacer(modifier = Modifier.height(72.dp)) }
+                    }
                 }
             }
         }
     }
-}
 
-@Composable
-private fun SearchEntryCard(onClick: () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF2F80ED).copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.Search,
-                    contentDescription = null,
-                    tint = Color(0xFF2F80ED)
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    text = "搜索帖子",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "按正文关键词搜索集市内容",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        // 悬浮发帖按钮,叠加在 Scaffold 之上
+        DraggableFab(
+            visible = showFab,
+            onClick = onOpenCompose
+        )
     }
 }
 

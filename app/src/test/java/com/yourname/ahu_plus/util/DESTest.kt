@@ -50,17 +50,15 @@ class DESTest {
     }
 
     @Test
-    fun `verify exact match with fixture credentials`() {
-        // Fixture data for deterministic DES output test
-        val username = "GXXXXXXXX"
-        val password = "REDACTED_PASSWORD"
+    fun `verify exact match with CAS shaped fixture`() {
+        // Pre-computed with: node tools/ahu_encrypt.js TEST_USER TEST_PASSWORD 'LT-REDACTED-TOKEN'
+        val username = "TEST_USER"
+        val password = "TEST_PASSWORD"
         val lt = "LT-REDACTED-TOKEN"
 
         val plainText = username + password + lt
         val result = DES.strEnc(plainText, "1", "2", "3")
 
-        // Expected: F1FBF36C569F20E4FE10AE8A5CCB79DD... (from Python script log)
-        // Verify start matches known good output
-        assertEquals("REDACTED_CIPHERTEXT_PREFIX", result.substring(0, 48))
+        assertEquals("18EE3D7A7D0C154461127E6F4EE7C4902BDE3E69A1114EB6", result.substring(0, 48))
     }
 }

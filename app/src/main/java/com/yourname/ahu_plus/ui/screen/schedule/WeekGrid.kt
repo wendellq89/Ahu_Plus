@@ -36,21 +36,11 @@ import androidx.compose.ui.unit.sp
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
-import com.yourname.ahu_plus.ui.theme.AhuBlue
-import com.yourname.ahu_plus.ui.theme.AhuGreen
-import com.yourname.ahu_plus.ui.theme.AhuOrange
-import com.yourname.ahu_plus.ui.theme.AhuRed
-import com.yourname.ahu_plus.ui.theme.AhuTeal
-import com.yourname.ahu_plus.ui.theme.AhuViolet
+import com.yourname.ahu_plus.ui.theme.CourseColors
 import java.time.LocalDate
 import java.time.LocalTime
 
-val CourseColors = listOf(
-    AhuBlue, Color(0xFFE76F51), AhuGreen,
-    AhuViolet, AhuOrange, AhuTeal,
-    AhuRed, Color(0xFF27AE60), Color(0xFF8B5CF6),
-    Color(0xFF1F7A8C)
-)
+// (CourseColors moved to ui/theme/CourseColors.kt in 2026-06-17 refactor)
 
 // ── 布局常量 (可经设置面板调整) ──────────────────────────
 private val TIME_COL_WIDTH = 40.dp
@@ -69,7 +59,19 @@ fun WeekGrid(
     colWidth: Dp = 64.dp,
     rowHeight: Dp = 56.dp,
     fontScale: Float = 1.0f,
+    /** 是否显示周六 (默认 true)。false 时周六列隐藏 */
+    showSat: Boolean = true,
+    /** 是否显示周日 (默认 true)。false 时周日列隐藏 */
+    showSun: Boolean = true,
 ) {
+    // 可见的星期列表 (用于头部 + 列计算)。1=周一 ... 7=周日。
+    val visibleDays: List<Int> = remember(showSat, showSun) {
+        buildList {
+            for (d in 1..5) add(d)
+            if (showSat) add(6)
+            if (showSun) add(7)
+        }
+    }
     val sortedUnits = remember(unitTimes) {
         unitTimes.filter { it.indexNo != null }.sortedBy { it.indexNo }
     }
@@ -86,8 +88,11 @@ fun WeekGrid(
     val horScroll = rememberScrollState()
     val verScroll = rememberScrollState()
 
-    val gridWidth = colWidth * 7
+    val gridWidth = colWidth * visibleDays.size
     val bodyHeight = rowHeight * totalRows
+    val dayToColIndex: Map<Int, Int> = remember(visibleDays) {
+        visibleDays.withIndex().associate { (i, d) -> d to i }
+    }
     val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)
     val currentTimeLineY = remember(sortedUnits, isCurrentWeek, rowHeight) {
         if (!isCurrentWeek) {
@@ -144,7 +149,7 @@ fun WeekGrid(
                     .horizontalScroll(horScroll)
             ) {
                 Row(modifier = Modifier.width(gridWidth)) {
-                    for (d in 1..7) {
+                    for (d in visibleDays) {
                         DayHeaderCell(
                             label = DAY_LABELS[d - 1],
                             isToday = isCurrentWeek && d == todayDayOfWeek,
@@ -186,11 +191,12 @@ fun WeekGrid(
                 Box(modifier = Modifier.size(gridWidth, bodyHeight)) {
                     for (u in minUnit..maxUnit) {
                         val row = u - minUnit
-                        for (d in 1..7) {
+                        for (d in visibleDays) {
                             val isToday = isCurrentWeek && d == todayDayOfWeek
+                            val colIdx = dayToColIndex[d] ?: continue
                             Box(
                                 modifier = Modifier
-                                    .offset(colWidth * (d - 1), rowHeight * row)
+                                    .offset(colWidth * colIdx, rowHeight * row)
                                     .size(colWidth, rowHeight)
                                     .background(
                                         when {
@@ -205,8 +211,8 @@ fun WeekGrid(
                     }
 
                     if (currentTimeLineY != null) {
-                        val todayCol = todayDayOfWeek - 1
-                        if (todayCol in 0..6) {
+                        val todayCol = dayToColIndex[todayDayOfWeek]
+                        if (todayCol != null) {
                             Box(
                                 modifier = Modifier
                                     .offset(colWidth * todayCol + 5.dp, currentTimeLineY)
@@ -223,8 +229,7 @@ fun WeekGrid(
                     }
 
                     for (item in displayItems) {
-                        val col = item.weekday - 1
-                        if (col !in 0..6) continue
+                        val col = dayToColIndex[item.weekday] ?: continue
                         val rowStart = item.startUnit - minUnit
                         val rowSpan = item.endUnit - item.startUnit + 1
                         if (rowStart < 0 || rowSpan <= 0) continue

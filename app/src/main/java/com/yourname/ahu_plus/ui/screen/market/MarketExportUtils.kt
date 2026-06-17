@@ -167,7 +167,9 @@ internal object MarketExportUtils {
         val density = context.resources.displayMetrics.density
         fun dp(value: Float): Float = value * density
 
-        val width = 1080
+        // 导出宽度按手机实际像素的 1.5 倍动态计算,保证内容区接近浏览时的视觉宽度。
+        // 3x density 设备 (1080px 屏) → 1620px,留出 outerPadding/cardPadding 后约 1500px 内容。
+        val width = max(1080, (context.resources.displayMetrics.widthPixels * 1.5f).roundToInt())
         val outerPadding = dp(28f)
         val cardPadding = dp(32f)
         val contentWidth = (width - outerPadding * 2 - cardPadding * 2).roundToInt()

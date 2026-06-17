@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Storefront
@@ -84,6 +85,7 @@ import com.yourname.ahu_plus.data.model.FinanceSummary
 import com.yourname.ahu_plus.data.model.StudentInfo
 import com.yourname.ahu_plus.data.model.StudentInfoCodeLookup
 import com.yourname.ahu_plus.data.model.StudentInfoField
+import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.ui.components.AhuInfoRow
 import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.data.local.ElectricityRoomConfig
@@ -102,6 +104,7 @@ import com.yourname.ahu_plus.ui.screen.market.MarketSettingsScreen
 import com.yourname.ahu_plus.ui.screen.market.MarketViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.yourname.ahu_plus.ui.theme.AhuGreen
+import com.yourname.ahu_plus.util.BrowserOpener
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -118,6 +121,11 @@ fun ProfileScreen(
     scheduleUiState: ScheduleUiState,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    /** 2026-06-17 Bug2: 近期任务全局设置 */
+    showCompletedTasks: Boolean = false,
+    showCompletedExams: Boolean = true,
+    onShowCompletedTasksChanged: (Boolean) -> Unit = {},
+    onShowCompletedExamsChanged: (Boolean) -> Unit = {},
     scrollTarget: String? = null,
     onScrollTargetConsumed: () -> Unit = {},
     openCardAnalytics: Boolean = false,
@@ -309,6 +317,11 @@ fun ProfileScreen(
             onThemeModeChange = onThemeModeChange,
             marketEnabled = marketUiState.marketEnabled,
             onMarketEnabledChanged = marketViewModel::setMarketEnabled,
+            // 2026-06-17 Bug2: 从 scheduleUiState 获取 (已通过 ViewModel 反应)
+            showCompletedTasks = scheduleUiState.showCompletedTasks,
+            showCompletedExams = scheduleUiState.showCompletedExams,
+            onShowCompletedTasksChanged = onShowCompletedTasksChanged,
+            onShowCompletedExamsChanged = onShowCompletedExamsChanged,
             onBack = { showSettings = false }
         )
     } else {
@@ -327,6 +340,13 @@ fun ProfileScreen(
             balanceLoading = cardUiState.isLoading,
             balanceError = cardUiState.error,
             timestamp = cardUiState.timestamp,
+            qrCode = cardUiState.qrCode,
+            qrBalance = cardUiState.qrBalance,
+            qrLoading = cardUiState.qrLoading,
+            qrError = cardUiState.qrError,
+            qrAuthUrl = cardViewModel.getAdwmhAuthStartUrl(),
+            onAuthorizeQr = cardViewModel::importAdwmhSession,
+            onRefreshQr = cardViewModel::loadCampusQrCode,
             identityCount = marketUiState.identities.size,
             hasMarketIdentity = marketUiState.hasSavedIdentity,
             marketEnabled = marketUiState.marketEnabled,
@@ -374,6 +394,13 @@ private fun ProfileHomeScreen(
     balanceLoading: Boolean,
     balanceError: String?,
     timestamp: Long,
+    qrCode: AdwmhQrCode?,
+    qrBalance: Double?,
+    qrLoading: Boolean,
+    qrError: String?,
+    qrAuthUrl: String,
+    onAuthorizeQr: (String) -> Unit,
+    onRefreshQr: () -> Unit,
     identityCount: Int,
     hasMarketIdentity: Boolean,
     marketEnabled: Boolean,
@@ -482,6 +509,7 @@ private fun ProfileHomeScreen(
                     isLoading = balanceLoading,
                     error = balanceError,
                     timestamp = timestamp,
+                    qrAuthUrl = qrAuthUrl,
                     onClick = onOpenBills
                 )
             }
@@ -643,6 +671,11 @@ private fun AppSettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit,
     marketEnabled: Boolean,
     onMarketEnabledChanged: (Boolean) -> Unit,
+    /** 2026-06-17 Bug2: 近期任务全局设置 */
+    showCompletedTasks: Boolean = false,
+    showCompletedExams: Boolean = true,
+    onShowCompletedTasksChanged: (Boolean) -> Unit = {},
+    onShowCompletedExamsChanged: (Boolean) -> Unit = {},
     onBack: () -> Unit
 ) {
     Scaffold(
@@ -706,6 +739,28 @@ private fun AppSettingsScreen(
                             },
                             checked = marketEnabled,
                             onCheckedChange = onMarketEnabledChanged
+                        )
+                        HorizontalDivider()
+                        SettingsSwitchRow(
+                            title = "显示已完成考试",
+                            description = if (showCompletedExams) {
+                                "近期任务中展示已结束的考试"
+                            } else {
+                                "近期任务中隐藏已考完的考试"
+                            },
+                            checked = showCompletedExams,
+                            onCheckedChange = onShowCompletedExamsChanged,
+                        )
+                        HorizontalDivider()
+                        SettingsSwitchRow(
+                            title = "显示已完成任务",
+                            description = if (showCompletedTasks) {
+                                "近期任务中展示已划线的待办与作业"
+                            } else {
+                                "近期任务中隐藏已完成的待办与作业"
+                            },
+                            checked = showCompletedTasks,
+                            onCheckedChange = onShowCompletedTasksChanged,
                         )
                     }
                 }
@@ -1174,9 +1229,48 @@ private fun BalanceCard(
     isLoading: Boolean,
     error: String?,
     timestamp: Long,
+    qrAuthUrl: String,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val formatter = DecimalFormat("\u00A5#,##0.00")
+    var showQrHint by rememberSaveable { mutableStateOf(false) }
+
+    fun shareQrLink() {
+        val opened = BrowserOpener.shareTextToWeChat(context, qrAuthUrl)
+        if (!opened) {
+            Toast.makeText(context, "未能分享到微信，请确认已安装微信", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    if (showQrHint) {
+        AlertDialog(
+            onDismissRequest = { showQrHint = false },
+            title = { Text("智慧安大支付码") },
+            text = {
+                Text("智慧安大支付码暂不支持第三方调用，需要你自己分享网页链接到微信，再点击链接进入。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        context.getSharedPreferences("campus_qr_hint", android.content.Context.MODE_PRIVATE)
+                            .edit()
+                            .putBoolean("shown", true)
+                            .apply()
+                        showQrHint = false
+                        shareQrLink()
+                    }
+                ) {
+                    Text("去微信分享")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showQrHint = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 
     Card(
         shape = RoundedCornerShape(8.dp),
@@ -1212,7 +1306,7 @@ private fun BalanceCard(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "\u6211\u7684\u6821\u56ed\u5361\u4f59\u989d",
+                    text = "\u6821\u56ed\u5361\u4f59\u989d",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -1243,6 +1337,26 @@ private fun BalanceCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+            IconButton(
+                onClick = {
+                    val shown = context.getSharedPreferences(
+                        "campus_qr_hint",
+                        android.content.Context.MODE_PRIVATE
+                    ).getBoolean("shown", false)
+                    if (shown) {
+                        shareQrLink()
+                    } else {
+                        showQrHint = true
+                    }
+                },
+                modifier = Modifier.padding(start = 4.dp)
+            ) {
+                Icon(
+                    Icons.Filled.QrCode2,
+                    contentDescription = "智慧安大支付码",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
             Icon(
                 Icons.Filled.ChevronRight,

@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
                     examRepository = app.examRepository,
                     financeRepository = app.financeRepository,
                     attendanceRepository = app.attendanceRepository,
+                    adwmhCardRepository = app.adwmhCardRepository,
                     themeMode = themeMode,
                     onThemeModeChange = { newThemeMode ->
                         coroutineScope.launch {

@@ -47,9 +47,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private var cachedFilterNodeIds: List<Long> = emptyList()
     // 集市功能总开关 (true = 启用，底部导航显示 3 项；false = 禁用，仅 2 项)
     private var cachedMarketEnabled: Boolean = true
+    // 集市列表布局模式 ("list" 单列 / "stagger" 小红书双列瀑布)
+    private var cachedMarketListLayoutMode: String = "list"
     private var cachedScheduleColWidth: Float = 64f
     private var cachedScheduleRowHeight: Float = 56f
     private var cachedScheduleFontScale: Float = 1.0f
+
+    // 课表显示设置 (2026-06-17 课表重构)
+    private var cachedShowSat: Boolean = true
+    private var cachedShowSun: Boolean = true
+    private var cachedPagerEnabled: Boolean = true
+    private var cachedResetOnEnter: Boolean = true
+    private var cachedShowCompletedTasks: Boolean = false
+    private var cachedShowCompletedExams: Boolean = true
 
     // ── 业务数据缓存 ─────────────────────────────────
     private var cachedScheduleJson: String? = null
@@ -64,9 +74,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private var cachedAttendanceJson: String? = null
     private var cachedAttendanceUpdatedAt: Long = 0L
     private var cachedUserScheduleJson: String? = null
+    private var cachedAssessmentJson: String? = null
+    private var cachedAssessmentUpdatedAt: Long = 0L
+    private var cachedRecordIndexJson: String? = null
+    private var cachedRecordIndexUpdatedAt: Long = 0L
+    private var cachedHomeworkJson: String? = null
+    private var cachedHomeworkUpdatedAt: Long = 0L
+    private var cachedUserTasksJson: String? = null
+    private var cachedUserTasksUpdatedAt: Long = 0L
     private var cachedBathroomPhone: String? = null
     private var cachedAcConfig: ElectricityRoomConfig = ElectricityRoomConfig()
     private var cachedLightingConfig: ElectricityRoomConfig = ElectricityRoomConfig()
+    private var cachedAdwmhSessionId: String? = null
 
     val themeModeFlow = appDataStore.dataStore.data.map { preferences ->
         AppThemeMode.fromStorageValue(preferences[THEME_MODE_KEY])
@@ -123,11 +142,20 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedFilterNodeIds = parseLongList(prefs[MARKET_FILTER_NODES_KEY])
         // 集市功能总开关: 缺省 true,保持向后兼容 (老用户默认启用)
         cachedMarketEnabled = (prefs[MARKET_ENABLED_KEY] ?: "true") == "true"
+        // 列表布局模式: 缺省 "list" (单列)
+        cachedMarketListLayoutMode = prefs[MARKET_LIST_LAYOUT_KEY] ?: "list"
 
         // 课表布局偏好（带默认值容错）
         cachedScheduleColWidth = prefs[SCHEDULE_COL_WIDTH_KEY]?.toFloatOrNull() ?: 64f
         cachedScheduleRowHeight = prefs[SCHEDULE_ROW_HEIGHT_KEY]?.toFloatOrNull() ?: 56f
         cachedScheduleFontScale = prefs[SCHEDULE_FONT_SCALE_KEY]?.toFloatOrNull() ?: 1.0f
+        // 课表显示设置 (2026-06-17)
+        cachedShowSat = (prefs[KEY_SHOW_SAT] ?: "true") == "true"
+        cachedShowSun = (prefs[KEY_SHOW_SUN] ?: "true") == "true"
+        cachedPagerEnabled = (prefs[KEY_PAGER_ENABLED] ?: "true") == "true"
+        cachedResetOnEnter = (prefs[KEY_RESET_ON_ENTER] ?: "true") == "true"
+        cachedShowCompletedTasks = (prefs[KEY_SHOW_COMPLETED_TASKS] ?: "false") == "true"
+        cachedShowCompletedExams = (prefs[KEY_SHOW_COMPLETED_EXAMS] ?: "true") == "true"
 
         // ── 业务数据缓存恢复 ──────────────────────────
         cachedScheduleJson = prefs[SCHEDULE_JSON_KEY]
@@ -142,9 +170,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedAttendanceJson = prefs[ATTENDANCE_JSON_KEY]
         cachedAttendanceUpdatedAt = prefs[ATTENDANCE_UPDATED_AT_KEY] ?: 0L
         cachedUserScheduleJson = prefs[USER_SCHEDULE_JSON_KEY]
+        cachedAssessmentJson = prefs[ASSESSMENT_JSON_KEY]
+        cachedAssessmentUpdatedAt = prefs[ASSESSMENT_UPDATED_AT_KEY] ?: 0L
+        cachedRecordIndexJson = prefs[RECORD_INDEX_JSON_KEY]
+        cachedRecordIndexUpdatedAt = prefs[RECORD_INDEX_UPDATED_AT_KEY] ?: 0L
+        cachedHomeworkJson = prefs[HOMEWORK_JSON_KEY]
+        cachedHomeworkUpdatedAt = prefs[HOMEWORK_UPDATED_AT_KEY] ?: 0L
+        cachedUserTasksJson = prefs[USER_TASKS_JSON_KEY]
+        cachedUserTasksUpdatedAt = prefs[USER_TASKS_UPDATED_AT_KEY] ?: 0L
         cachedBathroomPhone = prefs[BATHROOM_PHONE_KEY]
         cachedAcConfig = parseElectricityConfig(prefs[AC_CONFIG_KEY])
         cachedLightingConfig = parseElectricityConfig(prefs[LIGHTING_CONFIG_KEY])
+        cachedAdwmhSessionId = prefs[ADWMH_SESSION_KEY]
 
         initialized = true
         Log.i(
@@ -315,6 +352,17 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit {
             it[MARKET_ENABLED_KEY] = if (enabled) "true" else "false"
         }
+    }
+
+    // ── 集市列表布局模式 ────────────────────────────────
+    // "list" 单列 / "stagger" 小红书双列瀑布
+
+    fun getListLayoutMode(): String = cachedMarketListLayoutMode
+
+    suspend fun setListLayoutMode(mode: String) {
+        val normalized = if (mode == "stagger") "stagger" else "list"
+        cachedMarketListLayoutMode = normalized
+        appDataStore.dataStore.edit { it[MARKET_LIST_LAYOUT_KEY] = normalized }
     }
 
     // ── 我的信息缓存 ─────────────────────────────────
@@ -506,6 +554,128 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it[SCHEDULE_FONT_SCALE_KEY] = value.toString() }
     }
 
+    // ── 课表显示设置 (2026-06-17) ─────────────────────
+
+    fun getShowSat(): Boolean = cachedShowSat
+    suspend fun setShowSat(value: Boolean) {
+        cachedShowSat = value
+        appDataStore.dataStore.edit { it[KEY_SHOW_SAT] = if (value) "true" else "false" }
+    }
+
+    fun getShowSun(): Boolean = cachedShowSun
+    suspend fun setShowSun(value: Boolean) {
+        cachedShowSun = value
+        appDataStore.dataStore.edit { it[KEY_SHOW_SUN] = if (value) "true" else "false" }
+    }
+
+    fun getPagerEnabled(): Boolean = cachedPagerEnabled
+    suspend fun setPagerEnabled(value: Boolean) {
+        cachedPagerEnabled = value
+        appDataStore.dataStore.edit { it[KEY_PAGER_ENABLED] = if (value) "true" else "false" }
+    }
+
+    fun getResetOnEnter(): Boolean = cachedResetOnEnter
+    suspend fun setResetOnEnter(value: Boolean) {
+        cachedResetOnEnter = value
+        appDataStore.dataStore.edit { it[KEY_RESET_ON_ENTER] = if (value) "true" else "false" }
+    }
+
+    fun getShowCompletedTasks(): Boolean = cachedShowCompletedTasks
+    suspend fun setShowCompletedTasks(value: Boolean) {
+        cachedShowCompletedTasks = value
+        appDataStore.dataStore.edit { it[KEY_SHOW_COMPLETED_TASKS] = if (value) "true" else "false" }
+    }
+
+    fun getShowCompletedExams(): Boolean = cachedShowCompletedExams
+    suspend fun setShowCompletedExams(value: Boolean) {
+        cachedShowCompletedExams = value
+        appDataStore.dataStore.edit { it[KEY_SHOW_COMPLETED_EXAMS] = if (value) "true" else "false" }
+    }
+
+    // ── 考核方案缓存 ─────────────────────────────────
+
+    fun getAssessmentJson(): String? = cachedAssessmentJson
+    fun getAssessmentUpdatedAt(): Long = cachedAssessmentUpdatedAt
+    suspend fun saveAssessmentJson(json: String) {
+        cachedAssessmentJson = json
+        cachedAssessmentUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit {
+            it[ASSESSMENT_JSON_KEY] = json
+            it[ASSESSMENT_UPDATED_AT_KEY] = cachedAssessmentUpdatedAt
+        }
+    }
+    suspend fun clearAssessmentJson() {
+        cachedAssessmentJson = null
+        cachedAssessmentUpdatedAt = 0L
+        appDataStore.dataStore.edit {
+            it.remove(ASSESSMENT_JSON_KEY)
+            it.remove(ASSESSMENT_UPDATED_AT_KEY)
+        }
+    }
+
+    // ── 记录索引缓存 (点名/签到/作业) ─────────────────
+
+    fun getRecordIndexJson(): String? = cachedRecordIndexJson
+    fun getRecordIndexUpdatedAt(): Long = cachedRecordIndexUpdatedAt
+    suspend fun saveRecordIndexJson(json: String) {
+        cachedRecordIndexJson = json
+        cachedRecordIndexUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit {
+            it[RECORD_INDEX_JSON_KEY] = json
+            it[RECORD_INDEX_UPDATED_AT_KEY] = cachedRecordIndexUpdatedAt
+        }
+    }
+    suspend fun clearRecordIndexJson() {
+        cachedRecordIndexJson = null
+        cachedRecordIndexUpdatedAt = 0L
+        appDataStore.dataStore.edit {
+            it.remove(RECORD_INDEX_JSON_KEY)
+            it.remove(RECORD_INDEX_UPDATED_AT_KEY)
+        }
+    }
+
+    // ── 作业列表缓存 (首页近期任务) ───────────────────
+
+    fun getHomeworkJson(): String? = cachedHomeworkJson
+    fun getHomeworkUpdatedAt(): Long = cachedHomeworkUpdatedAt
+    suspend fun saveHomeworkJson(json: String) {
+        cachedHomeworkJson = json
+        cachedHomeworkUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit {
+            it[HOMEWORK_JSON_KEY] = json
+            it[HOMEWORK_UPDATED_AT_KEY] = cachedHomeworkUpdatedAt
+        }
+    }
+    suspend fun clearHomeworkJson() {
+        cachedHomeworkJson = null
+        cachedHomeworkUpdatedAt = 0L
+        appDataStore.dataStore.edit {
+            it.remove(HOMEWORK_JSON_KEY)
+            it.remove(HOMEWORK_UPDATED_AT_KEY)
+        }
+    }
+
+    // ── 用户自定义待办缓存 (首页近期任务) ──────────────
+
+    fun getUserTasksJson(): String? = cachedUserTasksJson
+    fun getUserTasksUpdatedAt(): Long = cachedUserTasksUpdatedAt
+    suspend fun saveUserTasksJson(json: String) {
+        cachedUserTasksJson = json
+        cachedUserTasksUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit {
+            it[USER_TASKS_JSON_KEY] = json
+            it[USER_TASKS_UPDATED_AT_KEY] = cachedUserTasksUpdatedAt
+        }
+    }
+    suspend fun clearUserTasksJson() {
+        cachedUserTasksJson = null
+        cachedUserTasksUpdatedAt = 0L
+        appDataStore.dataStore.edit {
+            it.remove(USER_TASKS_JSON_KEY)
+            it.remove(USER_TASKS_UPDATED_AT_KEY)
+        }
+    }
+
     // ── 浴室余额手机号 ──────────────────────────────
 
     fun getBathroomPhone(): String? = cachedBathroomPhone
@@ -536,6 +706,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it[LIGHTING_CONFIG_KEY] = gson.toJson(config) }
     }
 
+    fun getAdwmhSessionId(): String? = cachedAdwmhSessionId
+
+    suspend fun saveAdwmhSessionId(sessionId: String) {
+        cachedAdwmhSessionId = sessionId
+        appDataStore.dataStore.edit { it[ADWMH_SESSION_KEY] = sessionId }
+    }
+
+    suspend fun clearAdwmhSessionId() {
+        cachedAdwmhSessionId = null
+        appDataStore.dataStore.edit { it.remove(ADWMH_SESSION_KEY) }
+    }
+
     /** 清除所有数据(session + 凭据 + JW session + 集市设置) — 用户主动退出登录时调用 */
     suspend fun clearAuthData() {
         cachedSessionId = null
@@ -545,6 +727,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedPassword = null
         cachedStudentInfoJson = null
         cachedStudentInfoUpdatedAt = 0L
+        cachedAdwmhSessionId = null
         appDataStore.dataStore.edit { preferences ->
             preferences.remove(SESSION_KEY)
             preferences.remove(JW_SESSION_KEY)
@@ -553,6 +736,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences.remove(PASSWORD_KEY)
             preferences.remove(STUDENT_INFO_KEY)
             preferences.remove(STUDENT_INFO_UPDATED_AT_KEY)
+            preferences.remove(ADWMH_SESSION_KEY)
         }
     }
 
@@ -572,9 +756,17 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedBlockKeywords = emptyList()
         cachedFilterNodeIds = emptyList()
         cachedMarketEnabled = true
+        cachedMarketListLayoutMode = "list"
         cachedScheduleColWidth = 64f
         cachedScheduleRowHeight = 56f
         cachedScheduleFontScale = 1.0f
+        // 课表显示设置 (2026-06-17) 恢复默认值
+        cachedShowSat = true
+        cachedShowSun = true
+        cachedPagerEnabled = true
+        cachedResetOnEnter = true
+        cachedShowCompletedTasks = false
+        cachedShowCompletedExams = true
         // 业务数据缓存
         cachedScheduleJson = null
         cachedScheduleUpdatedAt = 0L
@@ -587,9 +779,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedFinanceUpdatedAt = 0L
         cachedAttendanceJson = null
         cachedAttendanceUpdatedAt = 0L
+        cachedUserScheduleJson = null
+        cachedAssessmentJson = null
+        cachedAssessmentUpdatedAt = 0L
+        cachedRecordIndexJson = null
+        cachedRecordIndexUpdatedAt = 0L
+        cachedHomeworkJson = null
+        cachedHomeworkUpdatedAt = 0L
+        cachedUserTasksJson = null
+        cachedUserTasksUpdatedAt = 0L
         cachedBathroomPhone = null
         cachedAcConfig = ElectricityRoomConfig()
         cachedLightingConfig = ElectricityRoomConfig()
+        cachedAdwmhSessionId = null
         // 一次 edit 完成所有删除，避免多次 DataStore 序列化/写入
         appDataStore.dataStore.edit { preferences ->
             preferences.remove(SESSION_KEY)
@@ -606,9 +808,16 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences.remove(MARKET_BLOCK_KEYWORDS_KEY)
             preferences.remove(MARKET_FILTER_NODES_KEY)
             preferences.remove(MARKET_ENABLED_KEY)
+            preferences.remove(MARKET_LIST_LAYOUT_KEY)
             preferences.remove(SCHEDULE_COL_WIDTH_KEY)
             preferences.remove(SCHEDULE_ROW_HEIGHT_KEY)
             preferences.remove(SCHEDULE_FONT_SCALE_KEY)
+            preferences.remove(KEY_SHOW_SAT)
+            preferences.remove(KEY_SHOW_SUN)
+            preferences.remove(KEY_PAGER_ENABLED)
+            preferences.remove(KEY_RESET_ON_ENTER)
+            preferences.remove(KEY_SHOW_COMPLETED_TASKS)
+            preferences.remove(KEY_SHOW_COMPLETED_EXAMS)
             preferences.remove(SCHEDULE_JSON_KEY)
             preferences.remove(SCHEDULE_UPDATED_AT_KEY)
             preferences.remove(GRADES_JSON_KEY)
@@ -621,9 +830,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences.remove(ATTENDANCE_JSON_KEY)
             preferences.remove(ATTENDANCE_UPDATED_AT_KEY)
             preferences.remove(USER_SCHEDULE_JSON_KEY)
+            preferences.remove(ASSESSMENT_JSON_KEY)
+            preferences.remove(ASSESSMENT_UPDATED_AT_KEY)
+            preferences.remove(RECORD_INDEX_JSON_KEY)
+            preferences.remove(RECORD_INDEX_UPDATED_AT_KEY)
+            preferences.remove(HOMEWORK_JSON_KEY)
+            preferences.remove(HOMEWORK_UPDATED_AT_KEY)
+            preferences.remove(USER_TASKS_JSON_KEY)
+            preferences.remove(USER_TASKS_UPDATED_AT_KEY)
             preferences.remove(BATHROOM_PHONE_KEY)
             preferences.remove(AC_CONFIG_KEY)
             preferences.remove(LIGHTING_CONFIG_KEY)
+            preferences.remove(ADWMH_SESSION_KEY)
         }
         Log.i(TAG, "所有会话和凭据已清除")
     }
@@ -645,9 +863,17 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private val MARKET_BLOCK_KEYWORDS_KEY = stringPreferencesKey("market_block_keywords")
     private val MARKET_FILTER_NODES_KEY = stringPreferencesKey("market_filter_nodes")
     private val MARKET_ENABLED_KEY = stringPreferencesKey("market_enabled")
+    private val MARKET_LIST_LAYOUT_KEY = stringPreferencesKey("market_list_layout_mode")
     private val SCHEDULE_COL_WIDTH_KEY = stringPreferencesKey("schedule_col_width")
     private val SCHEDULE_ROW_HEIGHT_KEY = stringPreferencesKey("schedule_row_height")
     private val SCHEDULE_FONT_SCALE_KEY = stringPreferencesKey("schedule_font_scale")
+    // 课表显示设置 (2026-06-17)
+    private val KEY_SHOW_SAT = stringPreferencesKey("schedule_show_sat")
+    private val KEY_SHOW_SUN = stringPreferencesKey("schedule_show_sun")
+    private val KEY_PAGER_ENABLED = stringPreferencesKey("schedule_pager_enabled")
+    private val KEY_RESET_ON_ENTER = stringPreferencesKey("schedule_reset_on_enter")
+    private val KEY_SHOW_COMPLETED_TASKS = stringPreferencesKey("schedule_show_completed_tasks")
+    private val KEY_SHOW_COMPLETED_EXAMS = stringPreferencesKey("schedule_show_completed_exams")
     // 业务数据缓存 key
     private val SCHEDULE_JSON_KEY = stringPreferencesKey("schedule_json")
     private val SCHEDULE_UPDATED_AT_KEY = longPreferencesKey("schedule_updated_at")
@@ -661,9 +887,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private val ATTENDANCE_JSON_KEY = stringPreferencesKey("attendance_json")
     private val ATTENDANCE_UPDATED_AT_KEY = longPreferencesKey("attendance_updated_at")
     private val USER_SCHEDULE_JSON_KEY = stringPreferencesKey("user_schedule_json")
+    private val ASSESSMENT_JSON_KEY = stringPreferencesKey("assessment_json")
+    private val ASSESSMENT_UPDATED_AT_KEY = longPreferencesKey("assessment_updated_at")
+    private val RECORD_INDEX_JSON_KEY = stringPreferencesKey("record_index_json")
+    private val RECORD_INDEX_UPDATED_AT_KEY = longPreferencesKey("record_index_updated_at")
+    private val HOMEWORK_JSON_KEY = stringPreferencesKey("homework_json")
+    private val HOMEWORK_UPDATED_AT_KEY = longPreferencesKey("homework_updated_at")
+    private val USER_TASKS_JSON_KEY = stringPreferencesKey("user_tasks_json")
+    private val USER_TASKS_UPDATED_AT_KEY = longPreferencesKey("user_tasks_updated_at")
     private val BATHROOM_PHONE_KEY = stringPreferencesKey("bathroom_phone")
     private val AC_CONFIG_KEY = stringPreferencesKey("ac_config")
     private val LIGHTING_CONFIG_KEY = stringPreferencesKey("lighting_config")
+    private val ADWMH_SESSION_KEY = stringPreferencesKey("adwmh_jsessionid")
 
     // ── JSON 解析辅助 ──────────────────────────────────
 

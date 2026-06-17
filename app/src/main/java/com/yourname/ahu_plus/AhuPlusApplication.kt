@@ -4,6 +4,8 @@ import android.app.Application
 import com.yourname.ahu_plus.data.local.AppDataStore
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
+import com.yourname.ahu_plus.data.repository.AdwmhCardRepository
+import com.yourname.ahu_plus.data.repository.AssessmentRepository
 import com.yourname.ahu_plus.data.repository.AttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
@@ -11,10 +13,13 @@ import com.yourname.ahu_plus.data.repository.CourseRepository
 import com.yourname.ahu_plus.data.repository.ExamRepository
 import com.yourname.ahu_plus.data.repository.FinanceRepository
 import com.yourname.ahu_plus.data.repository.GradeRepository
+import com.yourname.ahu_plus.data.repository.HomeworkRepository
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
+import com.yourname.ahu_plus.data.repository.RecordRepository
 import com.yourname.ahu_plus.data.repository.StudentInfoRepository
+import com.yourname.ahu_plus.data.repository.UserTaskRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
 
 class AhuPlusApplication : Application() {
@@ -48,6 +53,16 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var attendanceRepository: AttendanceRepository
         private set
+    lateinit var adwmhCardRepository: AdwmhCardRepository
+        private set
+    lateinit var assessmentRepository: AssessmentRepository
+        private set
+    lateinit var recordRepository: RecordRepository
+        private set
+    lateinit var homeworkRepository: HomeworkRepository
+        private set
+    lateinit var userTaskRepository: UserTaskRepository
+        private set
     override fun onCreate() {
         super.onCreate()
 
@@ -76,6 +91,12 @@ class AhuPlusApplication : Application() {
         // 财务汇总 / 考勤缺勤 复用 studentInfoRepository 的 SSO 会话 (tp_ep_stu)
         financeRepository = FinanceRepository(sessionManager, casAuthRepository)
         attendanceRepository = AttendanceRepository(sessionManager, casAuthRepository)
+        adwmhCardRepository = AdwmhCardRepository(sessionManager)
+        // 课表 2.0 仓储 (2026-06-17)
+        assessmentRepository = AssessmentRepository(appDataStore, this)
+        recordRepository = RecordRepository(sessionManager)
+        homeworkRepository = HomeworkRepository(sessionManager)
+        userTaskRepository = UserTaskRepository(sessionManager)
     }
 
     /**
@@ -89,6 +110,7 @@ class AhuPlusApplication : Application() {
         casAuthRepository.clearCookies()
         jwAuthRepository.clearCookies()
         ycardRepository.clearCookies()
+        adwmhCardRepository.clearCookies()
         sessionManager.clearAuthData()
     }
 }

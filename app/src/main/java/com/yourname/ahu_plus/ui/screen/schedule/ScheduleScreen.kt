@@ -58,12 +58,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.jw.UserScheduleItem
+import com.yourname.ahu_plus.ui.screen.schedule.components.WeekPager
 import kotlin.math.roundToInt
 import java.util.UUID
 
 @Composable
 fun ScheduleScreen(
     viewModel: ScheduleViewModel,
+    assessmentRepository: com.yourname.ahu_plus.data.repository.AssessmentRepository,
     onBack: () -> Unit,
     onNeedsLogin: () -> Unit
 ) {
@@ -71,6 +73,11 @@ fun ScheduleScreen(
 
     LaunchedEffect(uiState.needsLogin) {
         if (uiState.needsLogin) onNeedsLogin()
+    }
+
+    // 进入 ScheduleScreen 时: 若 resetOnEnter 开启,跳到当前周
+    LaunchedEffect(Unit) {
+        viewModel.applyEnterReset()
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -153,28 +160,48 @@ fun ScheduleScreen(
                 }
 
                 else -> {
-                    WeekGrid(
-                        displayItems = uiState.displayItems,
-                        unitTimes = uiState.unitTimes,
-                        selectedWeek = uiState.selectedWeek,
-                        currentWeek = uiState.currentWeek,
-                        onCourseClick = viewModel::onCourseClicked,
-                        modifier = Modifier.fillMaxSize(),
-                        colWidth = uiState.colWidthDp.dp,
-                        rowHeight = uiState.rowHeightDp.dp,
-                        fontScale = uiState.fontScale,
-                    )
+                    val maxPage = maxWeek.coerceAtLeast(1)
+                    val currentPage = (uiState.selectedWeek - 1).coerceIn(0, maxPage - 1)
+                    com.yourname.ahu_plus.ui.screen.schedule.components.WeekPager(
+                        maxPage = maxPage,
+                        currentPage = currentPage,
+                        enabled = uiState.pagerEnabled,
+                        onPageChanged = { page -> viewModel.setSelectedWeek(page + 1) },
+                    ) { page ->
+                        val week = page + 1
+                        val items = remember(week, uiState.allActivities, uiState.showSat, uiState.showSun) {
+                            viewModel.buildDisplayItemsForWeek(week)
+                        }
+                        WeekGrid(
+                            displayItems = items,
+                            unitTimes = uiState.unitTimes,
+                            selectedWeek = week,
+                            currentWeek = uiState.currentWeek,
+                            onCourseClick = viewModel::onCourseClicked,
+                            modifier = Modifier.fillMaxSize(),
+                            colWidth = uiState.colWidthDp.dp,
+                            rowHeight = uiState.rowHeightDp.dp,
+                            fontScale = uiState.fontScale,
+                            showSat = uiState.showSat,
+                            showSun = uiState.showSun,
+                        )
+                    }
                 }
             }
         }
     }
 
-    // ── 课程详情 BottomSheet ────────────────────────
-    uiState.selectedCourseDetail?.let { detail ->
+    // ── 悬浮"今"按钮 (非当前周时显示) ───────────
+    com.yourname.ahu_plus.ui.screen.schedule.components.TodayFloatingButton(
+        visible = uiState.selectedWeek != uiState.currentWeek,
+        onClick = { viewModel.setSelectedWeek(uiState.currentWeek) },
+    )
+
+    // ── 课程详情 BottomSheet (2026-06-17 重写为 5 折叠 section) ──────
+    uiState.selectedCourseDetail?.let { _ ->
         CourseDetailSheet(
-            detail = detail,
-            onNoteChange = viewModel::onNoteDraftChanged,
-            onSave = viewModel::onNoteSave,
+            viewModel = viewModel,
+            assessmentRepository = assessmentRepository,
             onDismiss = viewModel::onDismissSheet,
         )
     }
@@ -185,9 +212,17 @@ fun ScheduleScreen(
             colWidthDp = uiState.colWidthDp,
             rowHeightDp = uiState.rowHeightDp,
             fontScale = uiState.fontScale,
+            showSat = uiState.showSat,
+            showSun = uiState.showSun,
+            pagerEnabled = uiState.pagerEnabled,
+            resetOnEnter = uiState.resetOnEnter,
             onColWidthChanged = viewModel::onColWidthChanged,
             onRowHeightChanged = viewModel::onRowHeightChanged,
             onFontScaleChanged = viewModel::onFontScaleChanged,
+            onShowSatChanged = viewModel::setShowSat,
+            onShowSunChanged = viewModel::setShowSun,
+            onPagerEnabledChanged = viewModel::setPagerEnabled,
+            onResetOnEnterChanged = viewModel::setResetOnEnter,
             onReset = viewModel::onResetSettings,
             onDismiss = { viewModel.onToggleSettings() },
         )
@@ -378,115 +413,11 @@ private fun WeekHeader(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ScheduleSettingsSheet(
-    colWidthDp: Float,
-    rowHeightDp: Float,
-    fontScale: Float,
-    onColWidthChanged: (Float) -> Unit,
-    onRowHeightChanged: (Float) -> Unit,
-    onFontScaleChanged: (Float) -> Unit,
-    onReset: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+// (旧的 ScheduleSettingsSheet + SettingSlider 已在 2026-06-17 抽到独立文件
+//  ui/screen/schedule/ScheduleSettingsSheet.kt)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            Text(
-                text = "课表显示设置",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-
-            SettingSlider(
-                label = "课程卡片宽度",
-                value = colWidthDp,
-                valueRange = 48f..80f,
-                steps = 15,
-                valueText = { "${it.roundToInt()} dp" },
-                onValueChange = onColWidthChanged,
-            )
-
-            SettingSlider(
-                label = "课程卡片高度",
-                value = rowHeightDp,
-                valueRange = 44f..72f,
-                steps = 13,
-                valueText = { "${it.roundToInt()} dp" },
-                onValueChange = onRowHeightChanged,
-            )
-
-            SettingSlider(
-                label = "字体缩放",
-                value = fontScale,
-                valueRange = 0.75f..1.5f,
-                steps = 14,
-                valueText = { "%.2fx".format(it) },
-                onValueChange = onFontScaleChanged,
-            )
-
-            TextButton(
-                onClick = onReset,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            ) {
-                Text("恢复默认")
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingSlider(
-    label: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int,
-    valueText: (Float) -> String,
-    onValueChange: (Float) -> Unit,
-) {
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = valueText(value),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            steps = steps,
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
+/** @deprecated 旧的本地定义;新版本在独立文件中 */
+private fun OldSettingSliderPlaceholder() = Unit
 
 // ═══════════════════════ 添加课程 BottomSheet ═══════════════════════
 

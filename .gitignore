@@ -1,5 +1,6 @@
 *.iml
 .gradle
+.kotlin/
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -9,7 +10,19 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
+app/build/
 /captures
 .externalNativeBuild
 .cxx
 local.properties
+*.log
+*.py[cod]
+__pycache__/
+
+# Local probe/debug artifacts
+/*.png
+tools/_cap*.png
+tools/card_analytics_output/
+tools/market_identity_exporter/
+tools/market_identity_exporter_system_python/
+tools/market_identity_exporter*.zip

@@ -38,7 +38,8 @@ fun MarketScreen(viewModel: MarketViewModel) {
                 onKeywordInputChanged = viewModel::onKeywordInputChanged,
                 onAddKeyword = viewModel::addBlockKeyword,
                 onRemoveKeyword = viewModel::removeBlockKeyword,
-                onToggleFilterNode = viewModel::toggleFilterNode
+                onToggleFilterNode = viewModel::toggleFilterNode,
+                onListLayoutModeChange = viewModel::setListLayoutMode
             )
         }
 
@@ -52,7 +53,8 @@ fun MarketScreen(viewModel: MarketViewModel) {
                 onTitleChanged = viewModel::onComposeTitleChanged,
                 onContentChanged = viewModel::onComposeContentChanged,
                 onAnonChanged = viewModel::onComposeAnonChanged,
-                onSubmit = viewModel::submitPost
+                onSubmit = viewModel::submitPost,
+                onComposeSchoolSelected = viewModel::setComposeSchoolId
             )
         }
 

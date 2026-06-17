@@ -6,8 +6,6 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,7 +35,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -54,6 +51,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -65,21 +63,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
-import coil.compose.AsyncImage
 import com.yourname.ahu_plus.data.model.MarketComment
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import kotlinx.coroutines.launch
@@ -112,7 +103,7 @@ internal fun MarketDetailScreen(
         }
     }
     val snackbarHostState = remember { SnackbarHostState() }
-    var previewImageUrl by remember { mutableStateOf<String?>(null) }
+    var previewImage by remember { mutableStateOf<ImagePreviewState?>(null) }
     var isExporting by remember { mutableStateOf(false) }
     var pendingGalleryAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val galleryPermissionLauncher = rememberLauncherForActivityResult(
@@ -152,6 +143,11 @@ internal fun MarketDetailScreen(
                 snackbarHostState.showSnackbar(message)
             }
         }
+    }
+
+    fun saveImageAt(index: Int) {
+        val url = previewImage?.urls?.getOrNull(index) ?: return
+        saveImage(url)
     }
 
     fun exportTopicImage(topicToExport: com.yourname.ahu_plus.data.model.MarketTopic) {
@@ -214,9 +210,6 @@ internal fun MarketDetailScreen(
                             Icon(Icons.Filled.Image, contentDescription = "导出图片")
                         }
                     }
-                    IconButton(onClick = onRefresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         },
@@ -237,160 +230,110 @@ internal fun MarketDetailScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
-        LazyColumn(
-            state = commentsListState,
+        PullToRefreshBox(
+            isRefreshing = uiState.detailLoading && uiState.topicDetail != null,
+            onRefresh = onRefresh,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            if (topic != null) {
-                item {
-                    MarketTopicDetailCard(
-                        topic = topic,
-                        school = uiState.topicSchoolMap[topic.id],
-                        onImageClick = { previewImageUrl = it }
-                    )
-                }
-            }
-
-            if (uiState.detailLoading) {
-                item { LoadingRow("正在同步详情...") }
-            }
-
-            uiState.detailError?.let { error ->
-                item {
-                    StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
-                        TextButton(onClick = onRefresh) { Text("重试") }
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    text = "评论",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-
-            if (uiState.commentsLoading && uiState.comments.isEmpty()) {
-                item { LoadingRow("正在加载评论...") }
-            }
-
-            uiState.commentsError?.let { error ->
-                item {
-                    StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
-                        TextButton(onClick = onRefresh) { Text("重试") }
-                    }
-                }
-            }
-
-            if (!uiState.commentsLoading && uiState.commentsError == null && uiState.comments.isEmpty()) {
-                item {
-                    StatusCard(
-                        text = "暂无评论",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            items(uiState.comments, key = { it.id }) { comment ->
-                CommentCard(
-                    comment = comment,
-                    isLoadingReplies = uiState.replyLoadingCommentIds.contains(comment.id),
-                    replyError = uiState.replyErrors[comment.id],
-                    onLoadMoreReplies = { onLoadMoreReplies(comment) },
-                    onReplyClick = { onStartReplyingToComment(comment) },
-                    onReplyReplyClick = { reply -> onStartReplyingToReply(comment, reply) }
-                )
-            }
-
-            if (uiState.comments.isNotEmpty()) {
-                item {
-                    AutoLoadFooter(
-                        isLoading = uiState.commentsLoadingMore,
-                        hasMore = uiState.hasMoreComments,
-                        loadingText = "正在加载更多评论...",
-                        emptyText = "没有更多评论了"
-                    )
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(24.dp)) }
-        }
-    }
-
-    previewImageUrl?.let { imageUrl ->
-        MarketImagePreviewDialog(
-            imageUrl = imageUrl,
-            onDismiss = { previewImageUrl = null },
-            onSave = { saveImage(imageUrl) }
-        )
-    }
-}
-
-@Composable
-private fun MarketImagePreviewDialog(
-    imageUrl: String,
-    onDismiss: () -> Unit,
-    onSave: () -> Unit
-) {
-    var scale by remember { mutableStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-        scale = (scale * zoomChange).coerceIn(1f, 5f)
-        offset = if (scale <= 1.01f) Offset.Zero else offset + panChange
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black),
-            contentAlignment = Alignment.Center
-        ) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
+            LazyColumn(
+                state = commentsListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = offset.x
-                        translationY = offset.y
-                    }
-                    .transformable(transformState)
-            )
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                IconButton(onClick = onSave) {
-                    Icon(
-                        Icons.Filled.Save,
-                        contentDescription = "保存图片",
-                        tint = Color.White
+                if (topic != null) {
+                    item {
+                        MarketTopicDetailCard(
+                            topic = topic,
+                            school = uiState.topicSchoolMap[topic.id],
+                            onImageClick = { url, index ->
+                                previewImage = ImagePreviewState(
+                                    urls = topic.imgs.filter { it.isNotBlank() },
+                                    initialIndex = index
+                                )
+                            }
+                        )
+                    }
+                }
+
+                if (uiState.detailLoading) {
+                    item { LoadingRow("正在同步详情...") }
+                }
+
+                uiState.detailError?.let { error ->
+                    item {
+                        StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                            TextButton(onClick = onRefresh) { Text("重试") }
+                        }
+                    }
+                }
+
+                item {
+                    Text(
+                        text = "评论",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "关闭",
-                        tint = Color.White
+
+                if (uiState.commentsLoading && uiState.comments.isEmpty()) {
+                    item { LoadingRow("正在加载评论...") }
+                }
+
+                uiState.commentsError?.let { error ->
+                    item {
+                        StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                            TextButton(onClick = onRefresh) { Text("重试") }
+                        }
+                    }
+                }
+
+                if (!uiState.commentsLoading && uiState.commentsError == null && uiState.comments.isEmpty()) {
+                    item {
+                        StatusCard(
+                            text = "暂无评论",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                items(uiState.comments, key = { it.id }) { comment ->
+                    CommentCard(
+                        comment = comment,
+                        isLoadingReplies = uiState.replyLoadingCommentIds.contains(comment.id),
+                        replyError = uiState.replyErrors[comment.id],
+                        onLoadMoreReplies = { onLoadMoreReplies(comment) },
+                        onReplyClick = { onStartReplyingToComment(comment) },
+                        onReplyReplyClick = { reply -> onStartReplyingToReply(comment, reply) }
                     )
                 }
+
+                if (uiState.comments.isNotEmpty()) {
+                    item {
+                        AutoLoadFooter(
+                            isLoading = uiState.commentsLoadingMore,
+                            hasMore = uiState.hasMoreComments,
+                            loadingText = "正在加载更多评论...",
+                            emptyText = "没有更多评论了"
+                        )
+                    }
+                }
+
+                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
+    }
+
+    previewImage?.let { state ->
+        MarketImagePreviewPager(
+            state = state,
+            onDismiss = { previewImage = null },
+            onSave = { index -> saveImageAt(index) }
+        )
     }
 }
 

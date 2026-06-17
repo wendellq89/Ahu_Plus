@@ -1,8 +1,7 @@
 package com.yourname.ahu_plus.ui.screen.market
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,19 +19,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -62,7 +58,8 @@ internal fun MarketComposeScreen(
     onTitleChanged: (String) -> Unit,
     onContentChanged: (String) -> Unit,
     onAnonChanged: (Boolean) -> Unit,
-    onSubmit: () -> Unit
+    onSubmit: () -> Unit,
+    onComposeSchoolSelected: (String) -> Unit = {}
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -96,11 +93,17 @@ internal fun MarketComposeScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            ComposeNodeCard(
+            // 多校模式才显示学校选择器
+            if (uiState.identities.size > 1) {
+                SchoolPickerRow(
+                    identities = uiState.identities,
+                    selectedId = uiState.composeSchoolId,
+                    onSelect = onComposeSchoolSelected
+                )
+            }
+            ComposeNodeChipRow(
                 nodes = uiState.composeNodes,
                 selectedId = uiState.composeNodeId,
-                menuOpen = uiState.composeNodeMenuOpen,
-                onMenuToggle = onNodeMenuToggle,
                 onNodeSelected = onNodeSelected
             )
 
@@ -203,70 +206,40 @@ internal fun MarketComposeScreen(
 }
 
 @Composable
-private fun ComposeNodeCard(
+internal fun ComposeNodeChipRow(
     nodes: List<MarketNode>,
     selectedId: Long,
-    menuOpen: Boolean,
-    onMenuToggle: (Boolean) -> Unit,
     onNodeSelected: (Long) -> Unit
 ) {
-    val selected = nodes.firstOrNull { it.id == selectedId } ?: nodes.firstOrNull()
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
+    val scrollState = androidx.compose.foundation.rememberScrollState()
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "选择板块",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Box {
-                OutlinedTextField(
-                    value = selected?.name ?: "请选择板块",
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onMenuToggle(true) },
-                    enabled = false,
-                    trailingIcon = {
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
-                    },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                        disabledBorderColor = MaterialTheme.colorScheme.outline,
-                        disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+        Text(
+            text = "选择板块",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(scrollState),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (nodes.isEmpty()) {
+                Text(
+                    text = "暂无可用板块",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { onMenuToggle(false) }
-                ) {
-                    if (nodes.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("暂无可用板块") },
-                            onClick = { onMenuToggle(false) }
-                        )
-                    } else {
-                        nodes.forEach { node ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = node.name,
-                                        fontWeight = if (node.id == selectedId) FontWeight.Bold
-                                        else FontWeight.Normal
-                                    )
-                                },
-                                onClick = { onNodeSelected(node.id) }
-                            )
-                        }
-                    }
+            } else {
+                nodes.forEach { node ->
+                    FilterChip(
+                        selected = node.id == selectedId,
+                        onClick = { onNodeSelected(node.id) },
+                        label = { Text(node.name) }
+                    )
                 }
             }
         }

@@ -16,12 +16,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,7 +59,8 @@ fun MarketSettingsScreen(
     onKeywordInputChanged: (String) -> Unit,
     onAddKeyword: () -> Unit,
     onRemoveKeyword: (String) -> Unit,
-    onToggleFilterNode: (Long) -> Unit
+    onToggleFilterNode: (Long) -> Unit,
+    onListLayoutModeChange: (String) -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -81,11 +85,14 @@ fun MarketSettingsScreen(
             // ── 1. 身份管理 ──────────────────────────
             item { SettingsSectionTitle("身份管理") }
             item {
-                IdentityCard(
+                CompactIdentityCard(
                     uiState = uiState,
                     onIdentityChanged = onIdentityChanged,
-                    onSave = onAddIdentity,
-                    onClear = onClearIdentities
+                    onAddIdentity = onAddIdentity,
+                    onRemoveIdentity = {
+                        // 移除第一个身份(紧凑卡只显示一个)
+                        uiState.identities.firstOrNull()?.let { onRemoveIdentity(it.id) }
+                    }
                 )
             }
 
@@ -128,6 +135,15 @@ fun MarketSettingsScreen(
                     description = "开启后隐藏置顶/广告帖子",
                     checked = uiState.blockPinned,
                     onCheckedChange = onBlockPinnedChanged
+                )
+            }
+
+            // ── 2.5 列表显示模式 ────────────────────────────
+            item { SettingsSectionTitle("列表显示模式") }
+            item {
+                ListLayoutModeCard(
+                    currentMode = uiState.listLayoutMode,
+                    onSelect = onListLayoutModeChange
                 )
             }
 
@@ -344,6 +360,65 @@ private fun KeywordChip(keyword: String, onRemove: () -> Unit) {
                     contentDescription = "删除",
                     modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ListLayoutModeCard(
+    currentMode: String,
+    onSelect: (String) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "列表显示模式",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "单列文字优先 / 小红书双列瀑布流(大图+标题)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = currentMode == "list",
+                    onClick = { onSelect("list") },
+                    label = { Text("单列列表") },
+                    leadingIcon = {
+                        if (currentMode == "list") {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize)
+                            )
+                        }
+                    }
+                )
+                FilterChip(
+                    selected = currentMode == "stagger",
+                    onClick = { onSelect("stagger") },
+                    label = { Text("双列瀑布") },
+                    leadingIcon = {
+                        if (currentMode == "stagger") {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize)
+                            )
+                        }
+                    }
                 )
             }
         }

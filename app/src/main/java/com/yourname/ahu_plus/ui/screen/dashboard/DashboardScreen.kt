@@ -113,10 +113,30 @@ fun DashboardScreen(
     onOpenLighting: () -> Unit,
     onOpenInternet: () -> Unit,
     onOpenCardAnalytics: () -> Unit,
+    onAddUserTask: () -> Unit = {},
+    onToggleTask: (com.yourname.ahu_plus.data.model.task.RecentTaskItem) -> Unit = {},
+    onAddTodayHomework: () -> Unit = {},
+    onTodayRollCall: () -> Unit = {},
+    onOpenAllTasks: () -> Unit = {},
     onNeedsLogin: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val noticeUiState by noticeViewModel.uiState.collectAsStateWithLifecycle()
+    val recentTasks by viewModel.recentTasks.collectAsStateWithLifecycle()
+    val todayHasSignIn by viewModel.todayHasSignIn.collectAsStateWithLifecycle()
+
+    // 2026-06-17 Bug4: 弹"添加待办"对话框
+    var showAddTaskDialog by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    // 2026-06-17 Bug9: 弹"查看全部近期任务"对话框
+    var showAllTasksDialog by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    // 2026-06-17 Bug4 修复: 首页添加作业对话框
+    var showTodayHomeworkDialog by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
 
     LaunchedEffect(uiState.needsLogin) {
         if (uiState.needsLogin) onNeedsLogin()
@@ -149,10 +169,49 @@ fun DashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item {
-                    TodayCourseCard(
-                        uiState = uiState,
+                    com.yourname.ahu_plus.ui.screen.dashboard.TodayCourseCard(
+                        uiState = com.yourname.ahu_plus.ui.screen.dashboard.TodayCourseUiState(
+                            todayItems = uiState.allActivities.mapNotNull { act ->
+                                val start = act.startUnit ?: return@mapNotNull null
+                                com.yourname.ahu_plus.data.model.jw.CourseDisplayItem(
+                                    lessonId = act.lessonId ?: 0,
+                                    courseName = act.courseName ?: "未知课程",
+                                    courseCode = act.courseCode,
+                                    teacherNames = act.teacherNames?.joinToString("、")
+                                        ?: act.teachers?.joinToString("、") ?: "",
+                                    room = act.room,
+                                    weekday = act.weekday ?: 0,
+                                    startUnit = start,
+                                    endUnit = act.endUnit ?: start,
+                                    weekIndexes = act.weekIndexes ?: emptyList(),
+                                    weeksStr = act.weeksStr,
+                                    startTime = act.startTime,
+                                    endTime = act.endTime,
+                                    courseType = act.courseType?.nameZh,
+                                    credits = act.credits,
+                                    campus = act.campus,
+                                    colorIndex = 0,
+                                )
+                            },
+                            unitTimes = uiState.unitTimes,
+                        ),
                         onOpenSchedule = onOpenSchedule,
-                        onRefresh = viewModel::onRefresh
+                        onRefresh = viewModel::onRefresh,
+                        // 2026-06-17 Bug3/4 修复: 真正接上 ViewModel + 签到状态
+                        onRollCall = { viewModel.addQuickSignInForToday() },
+                        onAddHomework = { showTodayHomeworkDialog = true },
+                        // Bug1 修复: 从 ViewModel 订阅 todayHasSignIn
+                        todayHasRollCall = todayHasSignIn,
+                    )
+                }
+
+                item {
+                    com.yourname.ahu_plus.ui.screen.dashboard.UpcomingTasksCard(
+                        tasks = recentTasks,
+                        // 2026-06-17 Bug4 修复: + 号真正接上对话框
+                        onToggleComplete = { viewModel.toggleRecentTask(it) },
+                        onAdd = { showAddTaskDialog = true },
+                        onViewAll = { showAllTasksDialog = true },
                     )
                 }
 
@@ -202,6 +261,45 @@ fun DashboardScreen(
                 )
             }
         }
+    }
+
+    // 2026-06-17 Bug4: 添加待办对话框
+    if (showAddTaskDialog) {
+        com.yourname.ahu_plus.ui.screen.dashboard.AddUserTaskDialog(
+            onDismiss = { showAddTaskDialog = false },
+            onConfirm = { title, subtitle, dueAt ->
+                viewModel.addUserTask(title, subtitle, dueAt)
+                showAddTaskDialog = false
+            },
+        )
+    }
+
+    // 2026-06-17 Bug9: 全部近期任务对话框
+    if (showAllTasksDialog) {
+        AllTasksDialog(
+            tasks = recentTasks,
+            onToggle = { viewModel.toggleRecentTask(it) },
+            onDeleteUserTask = { item ->
+                viewModel.deleteUserTask(item.id.removePrefix("task:"))
+            },
+            onDeleteHomework = { item ->
+                viewModel.deleteRecord(item.id.removePrefix("hw:"))
+            },
+            onAdd = { showAddTaskDialog = true; showAllTasksDialog = false },
+            onDismiss = { showAllTasksDialog = false },
+        )
+    }
+
+    // 2026-06-17 Bug4 修复: 首页添加作业对话框
+    if (showTodayHomeworkDialog) {
+        com.yourname.ahu_plus.ui.screen.schedule.components.AddHomeworkDialog(
+            courseName = "今日作业",
+            onDismiss = { showTodayHomeworkDialog = false },
+            onConfirm = { text, deadline ->
+                viewModel.addQuickHomeworkForToday(text, deadline)
+                showTodayHomeworkDialog = false
+            },
+        )
     }
 }
 

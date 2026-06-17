@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.screen.home
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,13 +37,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.local.ElectricityRoomConfig
+import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.data.model.InternetBalanceData
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.util.BrowserOpener
+import com.yourname.ahu_plus.util.QrCodeBitmap
 import java.text.DecimalFormat
 
 /**
@@ -84,6 +89,17 @@ fun HomeScreen(
                     isLoading = uiState.isLoading,
                     error = uiState.error,
                     onRetry = viewModel::loadBalance
+                )
+            }
+            item {
+                CampusQrCodeCard(
+                    qrCode = uiState.qrCode,
+                    balance = uiState.qrBalance,
+                    isLoading = uiState.qrLoading,
+                    error = uiState.qrError,
+                    authUrl = viewModel.getAdwmhAuthStartUrl(),
+                    onAuthorize = viewModel::importAdwmhSession,
+                    onRefresh = viewModel::loadCampusQrCode
                 )
             }
             item {
@@ -136,6 +152,95 @@ fun HomeScreen(
                     TextButton(onClick = viewModel::loadBills) {
                         Text("重试")
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CampusQrCodeCard(
+    qrCode: AdwmhQrCode?,
+    balance: Double?,
+    isLoading: Boolean,
+    error: String?,
+    authUrl: String,
+    onAuthorize: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    val context = LocalContext.current
+    var openError by remember { mutableStateOf<String?>(null) }
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "校园码",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            when {
+                isLoading && qrCode == null -> CircularProgressIndicator()
+                qrCode != null -> {
+                    val image = remember(qrCode.payload) {
+                        QrCodeBitmap.create(qrCode.payload, 720)
+                    }
+                    Image(
+                        bitmap = image,
+                        contentDescription = "校园码",
+                        modifier = Modifier.size(220.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (balance != null) {
+                        Text(
+                            text = "余额 ${DecimalFormat("¥#,##0.00").format(balance)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = qrCode.serverTimeText.ifBlank { "已刷新" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    if (isLoading) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    }
+                }
+                else -> {
+                    Text(
+                        text = openError ?: error ?: "请在微信内打开智慧安大校园码",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.Center) {
+                TextButton(
+                    onClick = {
+                        openError = null
+                        val opened = BrowserOpener.shareTextToWeChat(context, authUrl)
+                        if (!opened) {
+                            openError = "未能分享到微信，请确认已安装微信并允许分享。"
+                        }
+                    }
+                ) {
+                    Text("分享到微信")
+                }
+                TextButton(onClick = onRefresh) {
+                    Text("刷新")
                 }
             }
         }

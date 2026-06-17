@@ -20,6 +20,7 @@ coroutinesTest = "1.8.1"
 turbine = "1.1.0"
 lifecycleViewmodelCompose = "2.8.7"
 jsoup = "1.18.1"
+zxing = "3.5.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -52,6 +53,7 @@ mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", versio
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

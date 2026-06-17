@@ -2,6 +2,7 @@ package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
 import com.yourname.ahu_plus.data.GsonProvider
+import kotlin.math.abs
 import com.yourname.ahu_plus.data.model.jw.CourseActivity
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
@@ -175,16 +176,38 @@ class CourseRepository(
         const val DEFAULT_SEMESTER_ID = 112
 
         /**
+         * 从**所有** activities 构建稳定的 courseCode → colorIndex 映射。
+         *
+         * 同一 courseCode 始终得同一颜色，不同 courseCode 尽量不同色。
+         * 按 hash 值贪心去重：若 hash 的槽位已被占用，选下一个空闲色。
+         * 跨周共享此 map，切周不再洗牌。
+         */
+        fun buildColorMap(activities: List<CourseActivity>): Map<String, Int> {
+            val codes = activities.mapNotNull { it.courseCode }.distinct()
+            val used = HashSet<Int>(COLOR_COUNT)
+            val map = LinkedHashMap<String, Int>(codes.size)
+            for (code in codes.sorted()) {
+                var pick = abs(code.hashCode()) % COLOR_COUNT
+                if (!used.add(pick)) {
+                    val free = (0 until COLOR_COUNT).firstOrNull { it !in used }
+                    if (free != null) { pick = free; used.add(pick) }
+                }
+                map[code] = pick
+            }
+            return map
+        }
+
+        /**
          * 将 CourseActivity 列表转为 CourseDisplayItem 列表,
          * 只保留 selectedWeek 有课的条目。
          *
-         * @param getDataLessons 教务增强数据 (考核方式 / 排课文本 / 修读类别等),
-         *                      用于附加到 [CourseDisplayItem.lessonDetail] 给详情弹窗使用
+         * @param colorMap courseCode → colorIndex 映射 (由 [buildColorMap] 预计算)
          */
         fun toDisplayItems(
             activities: List<CourseActivity>,
             selectedWeek: Int,
-            getDataLessons: List<GetDataLesson>?
+            getDataLessons: List<GetDataLesson>?,
+            colorMap: Map<String, Int> = emptyMap(),
         ): List<CourseDisplayItem> {
             val getDataMap = getDataLessons?.associateBy { it.id } ?: emptyMap()
 
@@ -196,6 +219,8 @@ class CourseRepository(
                 .map { activity ->
                     val gdLesson = activity.lessonId?.let { getDataMap[it] }
                     val courseName = activity.courseName ?: "未知课程"
+                    val colorIndex = activity.courseCode?.let { colorMap[it] }
+                        ?: (abs(courseName.hashCode()) % COLOR_COUNT)
                     CourseDisplayItem(
                         lessonId = activity.lessonId ?: 0,
                         courseName = courseName,
@@ -213,11 +238,11 @@ class CourseRepository(
                         courseType = activity.courseType?.nameZh,
                         credits = activity.credits ?: gdLesson?.course?.credits,
                         campus = activity.campus,
-                        colorIndex = Math.abs(courseName.hashCode()) % COLOR_COUNT,
+                        colorIndex = colorIndex,
                         lessonDetail = gdLesson,
                     )
                 }
-                .sortedWith(compareBy({ it.weekday }, { it.startUnit }))
+                .sortedWith(compareBy({ it.weekday }, { it.startUnit }, { it.courseCode }))
         }
     }
 }

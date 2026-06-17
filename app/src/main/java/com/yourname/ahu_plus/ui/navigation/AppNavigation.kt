@@ -25,6 +25,7 @@ import androidx.navigation.compose.rememberNavController
 import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
+import com.yourname.ahu_plus.data.repository.AdwmhCardRepository
 import com.yourname.ahu_plus.data.repository.AttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
@@ -60,6 +61,7 @@ fun AppNavigation(
     examRepository: ExamRepository,
     financeRepository: FinanceRepository,
     attendanceRepository: AttendanceRepository,
+    adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit
 ) {
@@ -154,6 +156,7 @@ fun AppNavigation(
                 examRepository = examRepository,
                 financeRepository = financeRepository,
                 attendanceRepository = attendanceRepository,
+                adwmhCardRepository = adwmhCardRepository,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
                 onReauth = {
@@ -162,6 +165,7 @@ fun AppNavigation(
                         casAuthRepository.clearCookies()
                         jwAuthRepository.clearCookies()
                         ycardRepository.clearCookies()
+                        adwmhCardRepository.clearCookies()
                         sessionManager.clearSession()
                         sessionManager.clearJwSession()
                         navigateToLogin()
@@ -173,6 +177,7 @@ fun AppNavigation(
                         casAuthRepository.clearCookies()
                         jwAuthRepository.clearCookies()
                         ycardRepository.clearCookies()
+                        adwmhCardRepository.clearCookies()
                         sessionManager.clearAuthData()
                         navigateToLogin()
                     }

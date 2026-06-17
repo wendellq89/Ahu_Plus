@@ -12,6 +12,8 @@ import com.yourname.ahu_plus.data.model.ElectricityUiData
 import com.yourname.ahu_plus.data.model.InternetBalanceData
 import com.yourname.ahu_plus.data.model.InternetBillRecord
 import com.yourname.ahu_plus.data.model.StudentInfo
+import com.yourname.ahu_plus.data.repository.AdwmhCardRepository
+import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.SessionExpiredException
@@ -20,6 +22,7 @@ import com.yourname.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,7 +36,8 @@ class HomeViewModel(
     private val casAuthRepository: CasAuthRepository,
     private val ycardRepository: YcardRepository,
     private val sessionManager: SessionManager,
-    private val studentInfoRepository: StudentInfoRepository? = null
+    private val studentInfoRepository: StudentInfoRepository? = null,
+    private val adwmhCardRepository: AdwmhCardRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -52,6 +56,7 @@ class HomeViewModel(
         }
         applyStudentInfoPrefill(studentInfoRepository?.readCachedStudentInfo(), loadAfterApply = false)
         loadBalanceAndBills()
+        startQrAutoRefresh()
     }
 
     fun applyStudentInfoPrefill(info: StudentInfo?, loadAfterApply: Boolean = true) {
@@ -244,6 +249,47 @@ class HomeViewModel(
         }
     }
 
+    fun loadCampusQrCode() {
+        val qrRepository = adwmhCardRepository ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(qrLoading = true, qrError = null) }
+            withContext(Dispatchers.IO) {
+                val qrResult = qrRepository.getQrCode()
+                val balanceResult = qrRepository.getBalance()
+                _uiState.update { state ->
+                    qrResult.fold(
+                        onSuccess = { qr ->
+                            state.copy(
+                                qrCode = qr,
+                                qrBalance = balanceResult.getOrNull() ?: state.qrBalance,
+                                qrLoading = false,
+                                qrError = null
+                            )
+                        },
+                        onFailure = { e ->
+                            state.copy(
+                                qrLoading = false,
+                                qrError = e.message ?: "QR code load failed"
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    fun importAdwmhSession(sessionId: String) {
+        val qrRepository = adwmhCardRepository ?: return
+        viewModelScope.launch {
+            qrRepository.importSessionId(sessionId)
+            loadCampusQrCode()
+        }
+    }
+
+    fun getAdwmhAuthStartUrl(): String {
+        return adwmhCardRepository?.getAuthStartUrl().orEmpty()
+    }
+
     // ── 电费通用加载 ────────────────────────────────────
 
     fun loadInternetBills() {
@@ -425,6 +471,21 @@ class HomeViewModel(
 
     fun onRefresh() {
         loadBalanceAndBills()
+        loadCampusQrCode()
+    }
+
+    private fun startQrAutoRefresh() {
+        if (adwmhCardRepository == null) return
+        viewModelScope.launch {
+            while (true) {
+                loadCampusQrCode()
+                delay(QR_REFRESH_INTERVAL_MS)
+            }
+        }
+    }
+
+    private companion object {
+        const val QR_REFRESH_INTERVAL_MS = 45_000L
     }
 }
 
@@ -463,6 +524,10 @@ data class HomeUiState(
     val internetBills: List<InternetBillRecord> = emptyList(),
     val internetBillsLoading: Boolean = false,
     val internetBillsError: String? = null,
+    val qrCode: AdwmhQrCode? = null,
+    val qrBalance: Double? = null,
+    val qrLoading: Boolean = false,
+    val qrError: String? = null,
 )
 
 enum class ElectricityBillRange(val label: String, val loadingText: String, val emptyText: String) {

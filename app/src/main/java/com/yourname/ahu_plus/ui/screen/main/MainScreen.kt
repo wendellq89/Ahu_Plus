@@ -23,10 +23,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yourname.ahu_plus.AhuPlusApplication
 import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
+import com.yourname.ahu_plus.data.repository.AdwmhCardRepository
 import com.yourname.ahu_plus.data.repository.AttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
@@ -84,6 +87,7 @@ fun MainScreen(
     examRepository: ExamRepository,
     financeRepository: FinanceRepository,
     attendanceRepository: AttendanceRepository,
+    adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
     /** 仅清除会话并跳转登录(保留凭据/集市token等本地数据) */
@@ -105,10 +109,29 @@ fun MainScreen(
     }
 
     val cardViewModel = remember {
-        HomeViewModel(cardRepository, casAuthRepository, ycardRepository, sessionManager, studentInfoRepository)
+        HomeViewModel(
+            cardRepository,
+            casAuthRepository,
+            ycardRepository,
+            sessionManager,
+            studentInfoRepository,
+            adwmhCardRepository
+        )
     }
+    val app = LocalContext.current.applicationContext as AhuPlusApplication
     val scheduleViewModel = remember {
-        ScheduleViewModel(jwAuthRepository, courseRepository, courseNoteRepository, sessionManager)
+        ScheduleViewModel(
+            application = app,
+            jwAuthRepository = jwAuthRepository,
+            courseRepository = courseRepository,
+            noteRepository = courseNoteRepository,
+            sessionManager = sessionManager,
+            assessmentRepository = app.assessmentRepository,
+            recordRepository = app.recordRepository,
+            homeworkRepository = app.homeworkRepository,
+            userTaskRepository = app.userTaskRepository,
+            examRepository = examRepository,
+        )
     }
     val marketViewModel = remember {
         MarketViewModel(marketRepository)
@@ -226,6 +249,7 @@ fun MainScreen(
                     when (homePage) {
                         HOME_SCHEDULE -> ScheduleScreen(
                             viewModel = scheduleViewModel,
+                            assessmentRepository = app.assessmentRepository,
                             onBack = { homePage = HOME_DASHBOARD },
                             onNeedsLogin = onReauth
                         )
@@ -299,6 +323,11 @@ fun MainScreen(
                     scheduleUiState = scheduleUiState,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
+                    // 2026-06-17 Bug2: 近期任务全局设置
+                    showCompletedTasks = scheduleUiState.showCompletedTasks,
+                    showCompletedExams = scheduleUiState.showCompletedExams,
+                    onShowCompletedTasksChanged = { scheduleViewModel.setShowCompletedTasks(it) },
+                    onShowCompletedExamsChanged = { scheduleViewModel.setShowCompletedExams(it) },
                     scrollTarget = profileScrollTarget,
                     onScrollTargetConsumed = { profileScrollTarget = null },
                     openCardAnalytics = openCardAnalytics,
