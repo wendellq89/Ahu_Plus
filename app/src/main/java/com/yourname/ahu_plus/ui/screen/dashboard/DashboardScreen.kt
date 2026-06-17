@@ -33,7 +33,7 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Grade
@@ -902,7 +902,7 @@ private fun AppDock(
                 onClick = onOpenExam,
                 modifier = Modifier.width(78.dp)
             ) {
-                Icon(Icons.Filled.EventNote, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.EventNote, contentDescription = null)
             }
             AppDockItem(
                 title = "消费分析",
