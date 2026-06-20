@@ -27,3 +27,7 @@ tools/card_analytics_output/
 tools/market_identity_exporter/
 tools/market_identity_exporter_system_python/
 tools/market_identity_exporter*.zip
+
+# Local editor/tool directories
+.obsidian/
+.understand-anything/
