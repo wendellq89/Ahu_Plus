@@ -3,10 +3,12 @@ package com.yourname.ahu_plus.ui.screen.login
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.CasAuthException
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +18,9 @@ import kotlinx.coroutines.withContext
 
 class LoginViewModel(
     private val casAuthRepository: CasAuthRepository,
-    private val ycardRepository: YcardRepository
+    private val ycardRepository: YcardRepository,
+    private val adwmhCardRepository: com.yourname.ahu_plus.data.repository.AdwmhCardRepository? = null,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -58,14 +62,29 @@ class LoginViewModel(
             val user = state.username.trim()
             val pass = state.password
 
-            // Step 1: 先登录 CAS(主登录,必须成功)
-            val casResult = withContext(Dispatchers.IO) {
+            // CAS 与 adwmh 并发登录，adwmh 静默后台执行
+            val casDeferred = async(Dispatchers.IO) {
                 casAuthRepository.login(user, pass)
             }
+            val adwmhDeferred = if (adwmhCardRepository != null) {
+                async(Dispatchers.IO) {
+                    adwmhCardRepository.autoLogin(user, pass)
+                }
+            } else null
+
+            // adwmh 完成后静默处理（不阻塞导航）
+            adwmhDeferred?.invokeOnCompletion {
+                adwmhDeferred.getCompletionExceptionOrNull()?.let {
+                    Log.w("LoginVM", "智慧安大登录失败: ${it.message}")
+                }
+            }
+
+            // 等待 CAS 完成决定导航
+            val casResult = casDeferred.await()
 
             casResult.fold(
                 onSuccess = {
-                    // Step 2: CAS 成功后,ycard 自动复用 CASTGC 走简易 SSO
+                    // CAS 成功后,ycard 自动复用 CASTGC 走简易 SSO
                     // 失败也不影响主流程(余额仍可用)
                     val ycardResult = withContext(Dispatchers.IO) {
                         ycardRepository.login(user, pass)
@@ -77,6 +96,7 @@ class LoginViewModel(
                         }
                     )
                     _uiState.update { it.copy(isLoggedIn = true, isLoading = false) }
+                    sessionManager.notifyBackupOnLogin()
                 },
                 onFailure = { e ->
                     val message = when (e) {

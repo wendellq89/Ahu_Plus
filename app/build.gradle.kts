@@ -11,10 +11,14 @@ android {
         applicationId = "com.yourname.ahu_plus"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.1.3"
+        versionCode = 5
+        versionName = "1.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 2026-06-22 体积优化：ABI Split（见下方 splits.abi 块）。
+        // 注意：不要在这里加 ndk.abiFilters，会同时影响 universal APK,
+        // 导致兜底包也只剩 arm64 libs。splits.abi.include 才是 per-variant 控制。
     }
 
     // 临时 release 签名:复用 Android SDK 自带 debug.keystore,仅用于本地自测,不能上 Play Store
@@ -29,16 +33,36 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 内测阶段：debug 构建启用云端备份等测试功能
+            buildConfigField("boolean", "ENABLE_CLOUD_BACKUP", "true")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            isDebuggable = false
+            isJniDebuggable = false
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 发布阶段：云端备份由 ProGuard 混淆隐藏，功能仍可用但不可被逆向发现
+            buildConfigField("boolean", "ENABLE_CLOUD_BACKUP", "true")
         }
     }
+
+    // 2026-06-22 体积优化：ABI Split
+    // 输出 app-arm64-v8a-debug.apk + app-universal-debug.apk(兜底)
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a")
+            isUniversalApk = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -71,6 +95,7 @@ dependencies {
     implementation(libs.zxing.core)
     implementation(libs.androidx.glance)
     implementation(libs.androidx.glance.appwidget)
+    implementation(libs.conscrypt.android)
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.coroutines.test)

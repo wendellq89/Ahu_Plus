@@ -231,6 +231,9 @@ class ChaoxingViewModel(
             result.onSuccess {
                 val valid = cxRepo.validateSession()
                 if (valid) {
+                    // 保存凭据供自动登录 + 触发云端备份
+                    sessionManager.saveCxCredentials(username, password)
+                    sessionManager.notifyBackupOnLogin()
                     _loginState.value = CxLoginState(isLoggedIn = true)
                     loadCourses()
                 } else {
@@ -251,7 +254,20 @@ class ChaoxingViewModel(
                     _loginState.value = CxLoginState(isLoggedIn = true)
                     loadCourses()
                 } else {
-                    _loginState.value = CxLoginState(error = "会话已过期，请重新登录")
+                    // 会话过期 → 尝试自动续期
+                    if (sessionManager.hasCxCredentials()) {
+                        _loginState.value = CxLoginState(isLoading = true)
+                        val success = cxRepo.autoLogin()
+                        if (success) {
+                            sessionManager.notifyBackupOnLogin()
+                            _loginState.value = CxLoginState(isLoggedIn = true)
+                            loadCourses()
+                        } else {
+                            _loginState.value = CxLoginState(error = "自动登录失败，请手动登录")
+                        }
+                    } else {
+                        _loginState.value = CxLoginState(error = "会话已过期，请重新登录")
+                    }
                 }
             }
         }
@@ -260,6 +276,7 @@ class ChaoxingViewModel(
     fun logout() {
         viewModelScope.launch {
             cxRepo.clearCookies()
+            sessionManager.clearCxCredentials()
             _loginState.value = CxLoginState()
             _coursesState.value = CxCoursesState()
             _detailState.value = CxDetailState()

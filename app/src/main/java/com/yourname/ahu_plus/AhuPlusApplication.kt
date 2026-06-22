@@ -1,6 +1,7 @@
 package com.yourname.ahu_plus
 
 import android.app.Application
+import android.util.Log
 import com.yourname.ahu_plus.data.local.AppDataStore
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
@@ -32,7 +33,10 @@ import com.yourname.ahu_plus.data.repository.RecordRepository
 import com.yourname.ahu_plus.data.repository.StudentInfoRepository
 import com.yourname.ahu_plus.data.repository.UserTaskRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
+import com.yourname.ahu_plus.notification.WidgetUpdateScheduler
 import com.yourname.ahu_plus.util.CxFontDecoder
+import org.conscrypt.Conscrypt
+import java.security.Security
 
 class AhuPlusApplication : Application() {
     lateinit var appDataStore: AppDataStore
@@ -100,6 +104,20 @@ class AhuPlusApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // ── Conscrypt 强制 TLS(2026-06-22 借鉴 AHUTong) ─────
+        // 用 Google 维护的 BoringSSL 移植覆盖 Android 默认 TLS 实现,
+        // 解决部分国产 ROM(华为/小米/OPPO)的 TLS 握手异常。
+        // insertProviderAt(pos=1) 保证 Conscrypt 优先级高于系统默认,
+        // 但低于 BC 等用户安装的 provider。
+        try {
+            Security.insertProviderAt(Conscrypt.newProvider(), 1)
+            Log.i("AhuPlusApp", "Conscrypt TLS provider 已加载: ${Conscrypt.newProvider().name}")
+        } catch (e: Throwable) {
+            // 极端 ROM 可能加载失败(如 classloader 异常),降级到系统默认实现,
+            // 不影响主流程。
+            Log.w("AhuPlusApp", "Conscrypt 加载失败,使用系统默认 TLS: ${e.message}")
+        }
+
         // ── 基础存储层 ─────────────────────────────
         appDataStore = AppDataStore(this)
         sessionManager = SessionManager(appDataStore)
@@ -155,6 +173,11 @@ class AhuPlusApplication : Application() {
 
         // 自动更新管理器
         updateManager = UpdateManager(this, sessionManager)
+
+        // ── Widget / 课程提醒统一调度(2026-06-22 借鉴 AHUTong) ──
+        // 首次启动排程,后续每次 scheduleNext 自递归。
+        // 放在 onCreate 末尾确保所有 Repository 都已构造完毕。
+        WidgetUpdateScheduler.scheduleNext(this)
     }
 
     /**

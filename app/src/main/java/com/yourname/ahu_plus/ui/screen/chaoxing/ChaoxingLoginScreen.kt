@@ -39,8 +39,9 @@ fun ChaoxingLoginScreen(
     loginState: CxLoginState,
     onLogin: (String, String) -> Unit,
     onBack: () -> Unit,
+    savedPhone: String = "",
 ) {
-    var username by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf(savedPhone) }
     var password by remember { mutableStateOf("") }
 
     Scaffold(

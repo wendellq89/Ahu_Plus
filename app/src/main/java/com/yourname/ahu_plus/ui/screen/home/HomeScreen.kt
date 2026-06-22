@@ -1,6 +1,14 @@
 package com.yourname.ahu_plus.ui.screen.home
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +27,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -41,21 +51,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.local.ElectricityRoomConfig
 import com.yourname.ahu_plus.data.model.FeeItemOption
 import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.data.model.InternetBalanceData
+import com.yourname.ahu_plus.ui.components.AhuHeroCard
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.components.CountdownArc
+import com.yourname.ahu_plus.ui.theme.AhuGradient
 import com.yourname.ahu_plus.util.BrowserOpener
 import com.yourname.ahu_plus.util.QrCodeBitmap
 import java.text.DecimalFormat
@@ -72,6 +90,7 @@ fun HomeScreen(
     onLogout: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var showFullQrCode by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -107,9 +126,11 @@ fun HomeScreen(
                     balance = uiState.qrBalance,
                     isLoading = uiState.qrLoading,
                     error = uiState.qrError,
-                    authUrl = viewModel.getAdwmhAuthStartUrl(),
-                    onAuthorize = viewModel::importAdwmhSession,
-                    onRefresh = viewModel::loadCampusQrCode
+                    countdownSeconds = uiState.qrCountdownSeconds,
+                    totalCountdownSeconds = 45,
+                    onAutoLogin = viewModel::autoLoginAdwmh,
+                    onRefresh = viewModel::loadCampusQrCode,
+                    onQrClick = { showFullQrCode = true }
                 )
             }
             item {
@@ -173,6 +194,21 @@ fun HomeScreen(
                 }
             }
         }
+
+        // 全屏支付码弹窗
+        if (showFullQrCode) {
+            QrCodeFullScreenDialog(
+                qrCode = uiState.qrCode,
+                balance = uiState.qrBalance,
+                isLoading = uiState.qrLoading,
+                countdownSeconds = uiState.qrCountdownSeconds,
+                totalCountdownSeconds = 45,
+                qrError = uiState.qrError,
+                brightnessBoost = viewModel.getQrBrightnessBoost(),
+                onDismiss = { showFullQrCode = false },
+                onRefresh = viewModel::loadCampusQrCode
+            )
+        }
     }
 }
 
@@ -182,83 +218,211 @@ fun CampusQrCodeCard(
     balance: Double?,
     isLoading: Boolean,
     error: String?,
-    authUrl: String,
-    onAuthorize: (String) -> Unit,
-    onRefresh: () -> Unit
+    countdownSeconds: Int,
+    totalCountdownSeconds: Int,
+    onAutoLogin: () -> Unit,
+    onRefresh: () -> Unit,
+    onQrClick: () -> Unit
 ) {
-    val context = LocalContext.current
-    var openError by remember { mutableStateOf<String?>(null) }
 
-    Card(
-        shape = AhuShapes.Card,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    // 脉冲动画（仅在有 QR 码时生效）
+    val pulseTransition = rememberInfiniteTransition(label = "qrPulse")
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
+    AhuHeroCard(
+        gradient = AhuGradient.Teal.brush,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "校园码",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            when {
-                isLoading && qrCode == null -> CircularProgressIndicator()
-                qrCode != null -> {
-                    val image = remember(qrCode.payload) {
-                        QrCodeBitmap.create(qrCode.payload, 720)
-                    }
-                    Image(
-                        bitmap = image,
-                        contentDescription = "校园码",
-                        modifier = Modifier.size(220.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    if (balance != null) {
-                        Text(
-                            text = "余额 ${DecimalFormat("¥#,##0.00").format(balance)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Text(
-                        text = qrCode.serverTimeText.ifBlank { "已刷新" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                    if (isLoading) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    }
-                }
-                else -> {
-                    Text(
-                        text = openError ?: error ?: "请在微信内打开智慧安大校园码",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+        Column {
+            // 顶部标签行
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.QrCode2,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "智慧安大支付码",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                // 倒计时环（仅在有 QR 码时显示）
+                if (qrCode != null) {
+                    CountdownArc(
+                        secondsRemaining = countdownSeconds,
+                        totalSeconds = totalCountdownSeconds,
+                        size = 36.dp,
+                        strokeWidth = 2.5.dp,
+                        trackColor = Color.White.copy(alpha = 0.2f),
+                        progressColor = Color.White,
+                        textColor = Color.White
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.Center) {
-                TextButton(
-                    onClick = {
-                        openError = null
-                        val opened = BrowserOpener.shareTextToWeChat(context, authUrl)
-                        if (!opened) {
-                            openError = "未能分享到微信，请确认已安装微信并允许分享。"
+
+            // 内容区
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                when {
+                    // 加载中（无缓存）
+                    isLoading && qrCode == null -> {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(40.dp),
+                            strokeWidth = 3.dp
+                        )
+                        Text(
+                            text = "加载支付码...",
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    // 已加载 QR 码
+                    qrCode != null -> {
+                        val image = remember(qrCode.payload) {
+                            QrCodeBitmap.create(qrCode.payload, 720)
+                        }
+                        Image(
+                            bitmap = image,
+                            contentDescription = "校园支付码",
+                            modifier = Modifier
+                                .size(220.dp)
+                                .clickable { onQrClick() }
+                                .graphicsLayer(
+                                    scaleX = pulseScale,
+                                    scaleY = pulseScale
+                                )
+                        )
+                        // "点击放大" 文字提示
+                        Text(
+                            text = "点击放大",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.5f)
+                        )
+
+                        // 余额
+                        if (balance != null) {
+                            Text(
+                                text = "余额 ${DecimalFormat("¥#,##0.00").format(balance)}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+
+                        // 服务器时间 + 刷新中指示
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = qrCode.serverTimeText.ifBlank { "已刷新" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.55f)
+                            )
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White.copy(alpha = 0.6f)
+                                )
+                            }
                         }
                     }
-                ) {
-                    Text("分享到微信")
+
+                    // API 错误
+                    error != null -> {
+                        Text(
+                            text = error,
+                            color = Color(0xFFFFCDD2),
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center
+                        )
+                        TextButton(onClick = onRefresh) {
+                            Text("重试", color = Color.White)
+                        }
+                    }
+
+                    // 无 session — 自动登录
+                    else -> {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(40.dp),
+                                strokeWidth = 3.dp
+                            )
+                            Text(
+                                text = "正在登录智慧安大...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                        } else if (error != null) {
+                            Text(
+                                text = error ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFFFFCDD2),
+                                textAlign = TextAlign.Center
+                            )
+                            TextButton(onClick = onAutoLogin) {
+                                Text("重试登录", color = Color.White)
+                            }
+                        } else {
+                            Text(
+                                text = "点击按钮登录智慧安大",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White.copy(alpha = 0.5f)
+                            )
+                            TextButton(onClick = onAutoLogin) {
+                                Text("登录智慧安大", color = Color.White)
+                            }
+                        }
+                    }
                 }
-                TextButton(onClick = onRefresh) {
-                    Text("刷新")
+            }
+
+            // 底部操作栏（仅在有 QR 码时显示刷新）
+            if (qrCode != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    TextButton(onClick = onRefresh) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White.copy(alpha = 0.7f)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("刷新", color = Color.White.copy(alpha = 0.7f))
+                    }
                 }
             }
         }
@@ -296,7 +460,7 @@ private fun BalanceSummaryCard(
                 else -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "校园卡余额",
+                            text = "校园卡",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )

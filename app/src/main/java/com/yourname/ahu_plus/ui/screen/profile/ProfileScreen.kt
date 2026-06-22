@@ -3,6 +3,7 @@ package com.yourname.ahu_plus.ui.screen.profile
 import android.content.ClipData
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -112,12 +113,14 @@ import com.yourname.ahu_plus.ui.screen.home.ElectricityState
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
 import com.yourname.ahu_plus.ui.screen.home.ElectricityTarget
 import com.yourname.ahu_plus.ui.screen.home.InternetBalanceCard
+import com.yourname.ahu_plus.ui.screen.home.QrCodeFullScreenDialog
 import com.yourname.ahu_plus.ui.screen.market.MarketIdentityEditor
 import com.yourname.ahu_plus.ui.screen.market.MarketSettingsScreen
 import com.yourname.ahu_plus.ui.screen.market.MarketViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.yourname.ahu_plus.ui.theme.AhuGreen
 import com.yourname.ahu_plus.util.BrowserOpener
+import com.yourname.ahu_plus.util.QrCodeBitmap
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -160,6 +163,7 @@ fun ProfileScreen(
     var showXzxx by rememberSaveable { mutableStateOf(false) }
     var showUsageGuide by rememberSaveable { mutableStateOf(false) }
     var showFaq by rememberSaveable { mutableStateOf(false) }
+    var showFullQrCode by rememberSaveable { mutableStateOf(false) }
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -362,11 +366,14 @@ fun ProfileScreen(
             onThemeModeChange = onThemeModeChange,
             marketEnabled = marketUiState.marketEnabled,
             onMarketEnabledChanged = marketViewModel::setMarketEnabled,
-            // 2026-06-17 Bug2: 从 scheduleUiState 获取 (已通过 ViewModel 反应)
             showCompletedTasks = scheduleUiState.showCompletedTasks,
             showCompletedExams = scheduleUiState.showCompletedExams,
             onShowCompletedTasksChanged = onShowCompletedTasksChanged,
             onShowCompletedExamsChanged = onShowCompletedExamsChanged,
+            qrBrightnessBoost = cardViewModel.getQrBrightnessBoost(),
+            onQrBrightnessBoostChanged = cardViewModel::setQrBrightnessBoost,
+            adwmhConcurrentRetry = cardViewModel.getAdwmhConcurrentRetry(),
+            onAdwmhConcurrentRetryChanged = cardViewModel::setAdwmhConcurrentRetry,
             onBack = { showSettings = false }
         )
     } else {
@@ -388,9 +395,11 @@ fun ProfileScreen(
             qrBalance = cardUiState.qrBalance,
             qrLoading = cardUiState.qrLoading,
             qrError = cardUiState.qrError,
-            qrAuthUrl = cardViewModel.getAdwmhAuthStartUrl(),
-            onAuthorizeQr = cardViewModel::importAdwmhSession,
-            onRefreshQr = cardViewModel::loadCampusQrCode,
+            qrCountdownSeconds = cardUiState.qrCountdownSeconds,
+            onQrClick = {
+                cardViewModel.loadCampusQrCode()
+                showFullQrCode = true
+            },
             identityCount = marketUiState.identities.size,
             hasMarketIdentity = marketUiState.hasSavedIdentity,
             marketEnabled = marketUiState.marketEnabled,
@@ -420,6 +429,21 @@ fun ProfileScreen(
             onLogout = onLogout
         )
     }
+
+    // 全屏支付码弹窗 — 放在 ProfileScreen 顶层,确保能访问 cardUiState/cardViewModel/showFullQrCode
+    if (showFullQrCode) {
+        QrCodeFullScreenDialog(
+            qrCode = cardUiState.qrCode,
+            balance = cardUiState.qrBalance,
+            isLoading = cardUiState.qrLoading,
+            countdownSeconds = cardUiState.qrCountdownSeconds,
+            totalCountdownSeconds = 45,
+            qrError = cardUiState.qrError,
+            brightnessBoost = cardViewModel.getQrBrightnessBoost(),
+            onDismiss = { showFullQrCode = false },
+            onRefresh = { cardViewModel.loadCampusQrCode() }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -438,9 +462,8 @@ private fun ProfileHomeScreen(
     qrBalance: Double?,
     qrLoading: Boolean,
     qrError: String?,
-    qrAuthUrl: String,
-    onAuthorizeQr: (String) -> Unit,
-    onRefreshQr: () -> Unit,
+    qrCountdownSeconds: Int,
+    onQrClick: () -> Unit,
     identityCount: Int,
     hasMarketIdentity: Boolean,
     marketEnabled: Boolean,
@@ -478,6 +501,7 @@ private fun ProfileHomeScreen(
     ).joinToString(" · ").ifBlank { "学生信息接口待接入" }
     var showLogoutConfirm by rememberSaveable { mutableStateOf(false) }
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
+    var showQrCard by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
     // 2026 Bug14: 保存/恢复滚动位置。
@@ -584,14 +608,29 @@ private fun ProfileHomeScreen(
             }
 
             item {
-                BalanceCard(
-                    balance = balance,
-                    isLoading = balanceLoading,
-                    error = balanceError,
-                    timestamp = timestamp,
-                    qrAuthUrl = qrAuthUrl,
-                    onClick = onOpenBills
-                )
+                if (showQrCard) {
+                    ProfileQrCard(
+                        qrCode = qrCode,
+                        qrBalance = qrBalance,
+                        qrLoading = qrLoading,
+                        qrError = qrError,
+                        qrCountdownSeconds = qrCountdownSeconds,
+                        onBack = { showQrCard = false },
+                        onQrClick = onQrClick,
+                        onRefresh = onRefresh
+                    )
+                } else {
+                    BalanceCard(
+                        balance = balance,
+                        isLoading = balanceLoading,
+                        error = balanceError,
+                        timestamp = timestamp,
+                        qrAuthUrl = "",
+                        qrCode = qrCode,
+                        onQrClick = { showQrCard = true },
+                        onClick = onOpenBills
+                    )
+                }
             }
 
             item {
@@ -776,11 +815,14 @@ private fun AppSettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit,
     marketEnabled: Boolean,
     onMarketEnabledChanged: (Boolean) -> Unit,
-    /** 2026-06-17 Bug2: 近期任务全局设置 */
     showCompletedTasks: Boolean = false,
     showCompletedExams: Boolean = false,
     onShowCompletedTasksChanged: (Boolean) -> Unit = {},
     onShowCompletedExamsChanged: (Boolean) -> Unit = {},
+    qrBrightnessBoost: Boolean = true,
+    onQrBrightnessBoostChanged: (Boolean) -> Unit = {},
+    adwmhConcurrentRetry: Boolean = false,
+    onAdwmhConcurrentRetryChanged: (Boolean) -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -789,6 +831,9 @@ private fun AppSettingsScreen(
 
     // ── 手动检查更新 Dialog ───────────────────────────
     var manualUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    // 本地状态确保开关即时响应
+    var localQrBrightness by remember { mutableStateOf(qrBrightnessBoost) }
+    var localAdwmhRetry by remember { mutableStateOf(adwmhConcurrentRetry) }
 
     manualUpdateInfo?.let { info ->
         UpdateDialog(
@@ -893,6 +938,34 @@ private fun AppSettingsScreen(
                             },
                             checked = showCompletedTasks,
                             onCheckedChange = onShowCompletedTasksChanged,
+                        )
+                        HorizontalDivider()
+                        SettingsSwitchRow(
+                            title = "支付码调高亮度",
+                            description = if (localQrBrightness) {
+                                "打开支付码时自动将屏幕亮度调至最高"
+                            } else {
+                                "打开支付码时不改变屏幕亮度"
+                            },
+                            checked = localQrBrightness,
+                            onCheckedChange = {
+                                localQrBrightness = it
+                                onQrBrightnessBoostChanged(it)
+                            },
+                        )
+                        HorizontalDivider()
+                        SettingsSwitchRow(
+                            title = "智慧安大并发重试",
+                            description = if (localAdwmhRetry) {
+                                "登录超时时同时发起多个请求，任意一个成功即返回"
+                            } else {
+                                "登录失败时按顺序逐一重试"
+                            },
+                            checked = localAdwmhRetry,
+                            onCheckedChange = {
+                                localAdwmhRetry = it
+                                onAdwmhConcurrentRetryChanged(it)
+                            },
                         )
                         HorizontalDivider()
                         SettingsRow(
@@ -1379,142 +1452,207 @@ private fun BalanceCard(
     error: String?,
     timestamp: Long,
     qrAuthUrl: String,
+    qrCode: AdwmhQrCode?,
+    onQrClick: () -> Unit,
     onClick: () -> Unit
 ) {
-    val context = LocalContext.current
     val formatter = DecimalFormat("\u00A5#,##0.00")
-    var showQrHint by rememberSaveable { mutableStateOf(false) }
-
-    fun shareQrLink() {
-        val opened = BrowserOpener.shareTextToWeChat(context, qrAuthUrl)
-        if (!opened) {
-            Toast.makeText(context, "未能分享到微信，请确认已安装微信", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    if (showQrHint) {
-        AlertDialog(
-            onDismissRequest = { showQrHint = false },
-            title = { Text("智慧安大支付码") },
-            text = {
-                Text("智慧安大支付码暂不支持第三方调用，需要你自己分享网页链接到微信，再点击链接进入。")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        context.getSharedPreferences("campus_qr_hint", android.content.Context.MODE_PRIVATE)
-                            .edit()
-                            .putBoolean("shown", true)
-                            .apply()
-                        showQrHint = false
-                        shareQrLink()
-                    }
-                ) {
-                    Text("去微信分享")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showQrHint = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
 
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.padding(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(AhuShapes.IconBox)
-                    .background(AhuGreen.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.AccountBalanceWallet,
-                    contentDescription = null,
-                    tint = AhuGreen
-                )
-            }
-            Column(
+            // \u70B9\u51FB\u4F59\u989D\u533A\u57DF \u2192 \u8DF3\u8D26\u5355\u9875
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .clickable(onClick = onClick),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "\u6821\u56ed\u5361\u4f59\u989d",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                // \u6709\u91d1\u989d\u65f6\u9690\u85cf"\u66f4\u65b0\u4e8e"\u907f\u514d\u6324\u5360\u7a7a\u95f4;\u53ea\u6709\u65e0\u91d1\u989d(loading/error)\u65f6\u663e\u793a\u63d0\u793a
-                val hasBalance = balance > 0.0
-                val subText = when {
-                    hasBalance -> null  // \u663e\u793a\u91d1\u989d\u65f6,\u4e0d\u518d\u5c55\u793a"\u66f4\u65b0\u4e8e"
-                    isLoading -> null
-                    error != null -> null  // \u4e0d\u663e\u793a"\u83b7\u53d6\u5931\u8d25"
-                    else -> updatedText(timestamp)
-                }
-                if (subText != null) {
-                    Text(
-                        text = subText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(AhuShapes.IconBox)
+                        .background(AhuGreen.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.AccountBalanceWallet,
+                        contentDescription = null,
+                        tint = AhuGreen
                     )
                 }
-            }
-            when {
-                isLoading && balance == 0.0 -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
-                balance > 0.0 -> {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
-                        text = formatter.format(balance),
-                        style = MaterialTheme.typography.titleLarge,
+                        text = "\u6821\u56ED\u5361\u4F59\u989D",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                }
-                // \u5931\u8d25 / 0 \u5143 / \u5c1a\u672a\u52a0\u8f7d \u2192 \u4e0d\u663e\u793a\u4efb\u4f55\u5185\u5bb9
-            }
-            IconButton(
-                onClick = {
-                    val shown = context.getSharedPreferences(
-                        "campus_qr_hint",
-                        android.content.Context.MODE_PRIVATE
-                    ).getBoolean("shown", false)
-                    if (shown) {
-                        shareQrLink()
-                    } else {
-                        showQrHint = true
+                    val hasBalance = balance > 0.0
+                    val subText = when {
+                        hasBalance -> null
+                        isLoading -> null
+                        error != null -> null
+                        else -> updatedText(timestamp)
                     }
-                },
+                    if (subText != null) {
+                        Text(
+                            text = subText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                when {
+                    isLoading && balance == 0.0 -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                    balance > 0.0 -> {
+                        Text(
+                            text = formatter.format(balance),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+
+            // QR \u56FE\u6807\u72EC\u7ACB\u70B9\u51FB\u533A
+            IconButton(
+                onClick = onQrClick,
                 modifier = Modifier.padding(start = 4.dp)
             ) {
                 Icon(
                     Icons.Filled.QrCode2,
-                    contentDescription = "智慧安大支付码",
-                    tint = MaterialTheme.colorScheme.primary
+                    contentDescription = "\u667A\u6167\u5B89\u5927\u652F\u4ED8\u7801",
+                    tint = if (qrCode != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp)
-            )
+        }
+    }
+}
+
+
+
+/**
+ * 我的页面内嵌的 QR 支付码卡片（与余额卡互为 tab 切换）。
+ */
+@Composable
+private fun ProfileQrCard(
+    qrCode: AdwmhQrCode?,
+    qrBalance: Double?,
+    qrLoading: Boolean,
+    qrError: String?,
+    qrCountdownSeconds: Int,
+    onBack: () -> Unit,
+    onQrClick: () -> Unit,
+    onRefresh: () -> Unit
+) {
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 顶部栏：标题 + 返回按钮
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "智慧安大支付码",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onBack) {
+                    Text("返回余额")
+                }
+            }
+
+            when {
+                qrCode != null -> {
+                    val image = remember(qrCode.payload) {
+                        QrCodeBitmap.create(qrCode.payload, 720)
+                    }
+                    Image(
+                        bitmap = image,
+                        contentDescription = "支付码 — 点击放大",
+                        modifier = Modifier
+                            .size(200.dp)
+                            .clickable { onQrClick() }
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // 倒计时
+                        Text(
+                            text = "${qrCountdownSeconds}s",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (qrBalance != null) {
+                            Text(
+                                text = DecimalFormat("¥#,##0.00").format(qrBalance),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = qrCode.serverTimeText.ifBlank { "已刷新" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+                qrLoading -> {
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
+                    Text("加载中...", style = MaterialTheme.typography.bodySmall)
+                }
+                qrError != null -> {
+                    Text(qrError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onRefresh) { Text("重试") }
+                }
+                else -> {
+                    Text("点击刷新加载支付码", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onRefresh) { Text("加载") }
+                }
+            }
+
+            // 刷新 + 放大按钮
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TextButton(onClick = onRefresh) { Text("刷新") }
+                if (qrCode != null) {
+                    TextButton(onClick = onQrClick) { Text("放大") }
+                }
+            }
         }
     }
 }

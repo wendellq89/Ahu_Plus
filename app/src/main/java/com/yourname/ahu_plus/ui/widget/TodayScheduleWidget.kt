@@ -7,11 +7,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
+import androidx.glance.appwidget.cornerRadius
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
@@ -48,6 +52,23 @@ class TodayScheduleWidgetReceiver : GlanceAppWidgetReceiver() {
 object TodayScheduleWidgetUpdater {
     suspend fun updateAll(context: Context) {
         TodayScheduleWidget().updateAll(context.applicationContext)
+    }
+}
+
+/**
+ * Widget 内嵌"刷新"按钮触发的 ActionCallback。
+ *
+ * 借鉴 AHUTong RefreshAction:点击后调用 [TodayScheduleWidget.update] 重新拉取
+ * provideGlance → 刷新显示。注意这里只是触发 widget 重渲染,不会重新拉取网络
+ * (网络数据由 WidgetUpdateScheduler 每 30 分钟拉一次)。
+ */
+class RefreshWidgetAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters
+    ) {
+        TodayScheduleWidget().update(context, glanceId)
     }
 }
 
@@ -112,6 +133,22 @@ private fun HeaderRow(state: TodayScheduleWidgetState) {
         }
         Spacer(GlanceModifier.defaultWeight())
         StatusChip(state.status)
+        Spacer(GlanceModifier.width(6.dp))
+        // 2026-06-22 新增:借鉴 AHUTong 内嵌刷新按钮
+        Text(
+            text = "刷新",
+            maxLines = 1,
+            modifier = GlanceModifier
+                .background(ColorProvider(Color(0xFF2A394E)))
+                .cornerRadius(8.dp)
+                .clickable(actionRunCallback<RefreshWidgetAction>())
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            style = TextStyle(
+                color = ColorProvider(WidgetOnDark),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+        )
     }
 }
 

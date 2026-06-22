@@ -63,3 +63,35 @@
 # ---------- Kotlin Serialization (if ever added) ----------
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
+
+# ============================================================
+# 2026-06-22: 防逆向加固（内测阶段，隐藏测试功能）
+# ============================================================
+
+# 激进混淆：合并包路径，所有未 keep 的类归入单一 internal 包
+-repackageclasses 'com.yourname.ahu_plus.internal'
+
+# 允许 R8 修改访问修饰符（public → private），利于内联/优化
+-allowaccessmodification
+
+# 方法名复用：不同签名的方法可使用相同混淆名
+-overloadaggressively
+
+# 合并所有可能的接口（减少类数量）
+-mergeinterfacesaggressively
+
+# ---------- 移除日志（release 不输出 debug 日志） ----------
+-assumenosideeffects class android.util.Log {
+    public static int d(...);
+    public static int v(...);
+    public static int i(...);
+}
+
+# ---------- 不保留局部变量名（减少调试信息泄露） ----------
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+
+# ---------- 云端备份：不额外 keep，让其自然混淆 ----------
+# CloudBackupManager / CloudStorageRepository 的类名和方法名
+# 会被 R8 重命名为 a.b.c / a() 等，无需显式规则。
+# 仅保留 COS 签名相关的 OkHttp 框架类（已在上面 OkHttp 段处理）。

@@ -151,6 +151,16 @@ class ChaoxingRepository(
         return cookieStore[cxHost]?.any { it.name == "_uid" } == true
     }
 
+    /**
+     * 自动登录：使用 SessionManager 中已保存的凭据重新登录，
+     * 避免用户手动输入。返回 true 表示登录成功。
+     */
+    suspend fun autoLogin(): Boolean {
+        val phone = sessionManager.getCxPhone() ?: return false
+        val password = sessionManager.getCxPassword() ?: return false
+        return login(phone, password).isSuccess
+    }
+
     /** 返回当前所有 Cookie 的 "name=value;name=value" 字符串，供外部 HTTP 客户端使用。 */
     fun getCookieString(): String {
         return cookieStore[cxHost]?.joinToString("; ") { "${it.name}=${it.value}" } ?: ""

@@ -6,6 +6,7 @@ import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +25,8 @@ import kotlinx.coroutines.withContext
 class AutoLoginViewModel(
     private val sessionManager: SessionManager,
     private val casAuthRepository: CasAuthRepository,
-    private val ycardRepository: YcardRepository
+    private val ycardRepository: YcardRepository,
+    private val adwmhCardRepository: com.yourname.ahu_plus.data.repository.AdwmhCardRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AutoLoginState>(AutoLoginState.Loading)
@@ -45,9 +47,25 @@ class AutoLoginViewModel(
         }
         _uiState.value = AutoLoginState.Loading
         viewModelScope.launch {
-            val casResult = withContext(Dispatchers.IO) {
+            // CAS 与 adwmh 并发登录，adwmh 在后台静默（不影响页面加载速度）
+            val casDeferred = async(Dispatchers.IO) {
                 casAuthRepository.login(username, password)
             }
+            val adwmhDeferred = if (adwmhCardRepository != null) {
+                async(Dispatchers.IO) {
+                    adwmhCardRepository.autoLogin(username, password)
+                }
+            } else null
+
+            // adwmh 完成后静默处理（不阻塞导航）
+            adwmhDeferred?.invokeOnCompletion {
+                adwmhDeferred.getCompletionExceptionOrNull()?.let {
+                    android.util.Log.w("AutoLogin", "智慧安大登录失败: ${it.message}")
+                }
+            }
+
+            // 等待 CAS 完成决定导航
+            val casResult = casDeferred.await()
             casResult.fold(
                 onSuccess = {
                     // CAS 成功后顺手登录 ycard(失败不报错,继续往下走)
@@ -58,6 +76,7 @@ class AutoLoginViewModel(
                         android.util.Log.w("AutoLogin", "ycard 登录失败: ${it.message}")
                     }
                     _uiState.value = AutoLoginState.Success
+                    sessionManager.notifyBackupOnLogin()
                 },
                 onFailure = { e ->
                     _uiState.value = AutoLoginState.Failed(e.message ?: "未知错误")

@@ -110,7 +110,7 @@ fun AppNavigation(
         // ── 自动登录 + 重试页 ──────────────────────────
         composable("autologin") {
             val viewModel = viewModel {
-                AutoLoginViewModel(sessionManager, casAuthRepository, ycardRepository)
+                AutoLoginViewModel(sessionManager, casAuthRepository, ycardRepository, adwmhCardRepository)
             }
             AutoLoginScreen(
                 viewModel = viewModel,
@@ -129,7 +129,7 @@ fun AppNavigation(
 
         // ── 手动登录页 ─────────────────────────────────
         composable("login") {
-            val viewModel = viewModel { LoginViewModel(casAuthRepository, ycardRepository) }
+            val viewModel = viewModel { LoginViewModel(casAuthRepository, ycardRepository, adwmhCardRepository, sessionManager) }
             LoginScreen(
                 viewModel = viewModel,
                 savedUsername = sessionManager.getUsername(),

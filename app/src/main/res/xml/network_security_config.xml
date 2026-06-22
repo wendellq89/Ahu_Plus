@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    安大域名 (*.ahu.edu.cn) 默认 cleartextTrafficPermitted=false (API ≥28),
+    但 adwmh.ahu.edu.cn (智慧安大支付码) 的部分端点会返回 302 → http://,
+    OkHttp 默认 followSslRedirects=true 会跟过去,
+    然后被 NetworkSecurityPolicy 拦截抛 "CLEARTEXT communication to
+    adwmh.ahu.edu.cn not permitted by network security policy"。
+
+    只对 adwmh.ahu.edu.cn 单域开 cleartext,其它域名维持默认严格策略。
+    其它安大子域名 (one/ycard/jw/kqcard) 一直用 HTTPS,不需要 cleartext。
+
+    2026-06-22: 智慧安大支付码 TLS 1.2 + 速率限制修复配套。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">adwmh.ahu.edu.cn</domain>
+    </domain-config>
+</network-security-config>

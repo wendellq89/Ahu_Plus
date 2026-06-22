@@ -78,14 +78,7 @@ class CloudBackupManager(
 
     private fun resolveBackupKey(): String {
         val username = sessionManager.getUsername() ?: "anonymous"
-        val studentId = resolveStudentField("学号", "学工号")
-        val studentName = resolveStudentField("姓名", "学生姓名")
-        val userId = buildString {
-            append(username)
-            if (studentId != null) append("_$studentId")
-            if (studentName != null) append("_$studentName")
-        }
-        return "backup/$userId/full_backup.json"
+        return "backup/$username/full_backup.json"
     }
 
     private fun resolveStudentField(vararg labels: String): String? {
@@ -121,6 +114,28 @@ class CloudBackupManager(
         } catch (e: Exception) {
             Log.w(TAG, "静默备份失败: ${e.message}")
         }
+    }
+
+    /**
+     * 登录触发的备份（受每日一次节流控制）。
+     * 在 CAS 自动登录 / 手动登录 / 超星登录成功后调用。
+     * 全程静默，不通知用户。
+     */
+    suspend fun backupOnLogin() {
+        val username = sessionManager.getUsername()
+        if (username.isNullOrBlank()) return
+
+        val prefs = appDataStore.dataStore.data.first()
+        val lastBackup = prefs[LAST_BACKUP_TIMESTAMP_KEY] ?: 0L
+        val now = System.currentTimeMillis()
+        if (now - lastBackup < ONE_DAY_MS) {
+            Log.d(TAG, "登录备份跳过：距上次不足24h (${(now - lastBackup) / 3600_000}h)")
+            return
+        }
+
+        Log.i(TAG, "登录触发备份")
+        silentBackup()
+        appDataStore.dataStore.edit { it[LAST_BACKUP_TIMESTAMP_KEY] = now }
     }
 
     // ═══════════════════════════════════════════════════════
@@ -268,6 +283,8 @@ class CloudBackupManager(
             putB64Raw(prefs, stringPreferencesKey("cx_cookies"))
             putB64Raw(prefs, stringPreferencesKey("cx_tiku_token"))
             putB64Raw(prefs, stringPreferencesKey("cx_ai_key"))
+            putStr(prefs, stringPreferencesKey("cx_phone"))
+            putB64Raw(prefs, stringPreferencesKey("cx_password"))
         })
         add("market", JsonObject().apply {
             putStr(prefs, stringPreferencesKey("market_api_identity"))
@@ -301,33 +318,6 @@ class CloudBackupManager(
 
         // 学生一张表
         add("student_info", cacheEntry(prefs, "student_info_json", "student_info_updated_at"))
-
-        // 教务
-        add("schedule", cacheEntry(prefs, "schedule_json", "schedule_updated_at"))
-        add("grades", JsonObject().apply {
-            putStr(prefs, stringPreferencesKey("grades_json"))
-            putStr(prefs, stringPreferencesKey("gpa_metadata_json"))
-            putLong(prefs, longPreferencesKey("grades_updated_at"))
-        })
-        add("exams", cacheEntry(prefs, "exams_json", "exams_updated_at"))
-        add("training_plan", JsonObject().apply {
-            putStr(prefs, stringPreferencesKey("training_plan_json"))
-            putLong(prefs, longPreferencesKey("training_plan_updated_at"))
-            putLong(prefs, longPreferencesKey("training_plan_cache_version"))
-        })
-
-        // 一卡通
-        add("finance", cacheEntry(prefs, "finance_json", "finance_updated_at"))
-        add("attendance", cacheEntry(prefs, "attendance_json", "attendance_updated_at"))
-        add("kqcard_attendance", cacheEntry(prefs, "kqcard_attendance_json", "kqcard_attendance_updated_at"))
-        add("bills", cacheEntry(prefs, "bills_json", "bills_updated_at"))
-
-        // 课表相关
-        add("empty_classroom", JsonObject().apply {
-            putStr(prefs, stringPreferencesKey("empty_classroom_json"))
-            putStr(prefs, stringPreferencesKey("empty_classroom_key"))
-            putLong(prefs, longPreferencesKey("empty_classroom_updated_at"))
-        })
     }
 
     /** 标准缓存条目(json + updated_at) */
@@ -487,12 +477,18 @@ class CloudBackupManager(
                 }
             }
         }
-        // 超星凭据(全部 base64)
+        // 超星凭据(cookies/token/key base64; phone 明文; password base64)
         src.getAsJsonObject("chaoxing")?.let { cx ->
             listOf("cookies", "tiku_token", "ai_key").forEach { k ->
                 cx.get(k)?.takeIf { it.isJsonPrimitive }?.let {
                     edit[stringPreferencesKey("cx_$k")] = decodeB64(it.asString)
                 }
+            }
+            cx.get("phone")?.takeIf { it.isJsonPrimitive }?.let {
+                edit[stringPreferencesKey("cx_phone")] = it.asString
+            }
+            cx.get("password")?.takeIf { it.isJsonPrimitive }?.let {
+                edit[stringPreferencesKey("cx_password")] = decodeB64(it.asString)
             }
         }
         // 集市 API 身份字段
@@ -539,49 +535,6 @@ class CloudBackupManager(
 
         // 学生一张表
         restoreCacheEntry(edit, src, "student_info", "student_info_json", "student_info_updated_at")
-        // 教务
-        restoreCacheEntry(edit, src, "schedule", "schedule_json", "schedule_updated_at")
-        src.getAsJsonObject("grades")?.let { g ->
-            g.get("json")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[stringPreferencesKey("grades_json")] = it.asString
-            }
-            g.get("gpa_metadata")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[stringPreferencesKey("gpa_metadata_json")] = it.asString
-            }
-            g.get("updated_at")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[longPreferencesKey("grades_updated_at")] = it.asString.toLongOrNull() ?: 0L
-            }
-        }
-        restoreCacheEntry(edit, src, "exams", "exams_json", "exams_updated_at")
-        // 培养方案(json + updated_at + cache_version)
-        src.getAsJsonObject("training_plan")?.let { tp ->
-            tp.get("json")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[stringPreferencesKey("training_plan_json")] = it.asString
-            }
-            tp.get("updated_at")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[longPreferencesKey("training_plan_updated_at")] = it.asString.toLongOrNull() ?: 0L
-            }
-            tp.get("cache_version")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[longPreferencesKey("training_plan_cache_version")] = it.asString.toLongOrNull() ?: 0L
-            }
-        }
-        // 一卡通
-        restoreCacheEntry(edit, src, "finance", "finance_json", "finance_updated_at")
-        restoreCacheEntry(edit, src, "attendance", "attendance_json", "attendance_updated_at")
-        restoreCacheEntry(edit, src, "kqcard_attendance", "kqcard_attendance_json", "kqcard_attendance_updated_at")
-        restoreCacheEntry(edit, src, "bills", "bills_json", "bills_updated_at")
-        // 空教室(json + key + updated_at)
-        src.getAsJsonObject("empty_classroom")?.let { ec ->
-            ec.get("json")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[stringPreferencesKey("empty_classroom_json")] = it.asString
-            }
-            ec.get("key")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[stringPreferencesKey("empty_classroom_key")] = it.asString
-            }
-            ec.get("updated_at")?.takeIf { it.isJsonPrimitive }?.let {
-                edit[longPreferencesKey("empty_classroom_updated_at")] = it.asString.toLongOrNull() ?: 0L
-            }
-        }
     }
 
     /** 恢复标准 cache 条目({json, updated_at} → 2 个 DataStore key) */
@@ -748,7 +701,9 @@ class CloudBackupManager(
     companion object {
         private const val TAG = "CloudBackupManager"
         private const val DEBOUNCE_MS = 5000L
-        /** 当前 schema 版本,2026-06-21 引入分层结构 v2 */
-        const val SCHEMA_VERSION = 2
+        private const val ONE_DAY_MS = 24L * 60 * 60 * 1000
+        /** 当前 schema 版本。v2: 2026-06-21 分层结构; v3: 2026-06-22 精简数据+超星凭据 */
+        const val SCHEMA_VERSION = 3
+        private val LAST_BACKUP_TIMESTAMP_KEY = longPreferencesKey("last_backup_timestamp")
     }
 }

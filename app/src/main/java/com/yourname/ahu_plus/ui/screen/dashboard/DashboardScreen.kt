@@ -83,6 +83,7 @@ import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.formatTime
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
 import com.yourname.ahu_plus.data.repository.CourseRepository
+import com.yourname.ahu_plus.data.home.AppRegistry
 import com.yourname.ahu_plus.ui.components.AhuCard
 import com.yourname.ahu_plus.ui.components.AhuIconBox
 import com.yourname.ahu_plus.ui.components.AhuSectionTitle
@@ -850,6 +851,9 @@ private fun InfoIconText(
 }
 
 // 应用注册表：app key → (title, icon, color, onClick)
+//
+// 2026-06-22 重构：静态元数据（key/title/icon/color/group）抽到 [AppRegistry]，
+// 这里只保留 Composable 消费者专用的 onClick 回调组装。
 private data class AppEntry(
     val key: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val color: Color, val onClick: () -> Unit
@@ -872,34 +876,30 @@ private fun AppDock(
     onOpenAppHub: () -> Unit = {},
     recentApps: List<String> = emptyList()
 ) {
-    // 全量注册表 (key 与 onRecordApp 一致)
-    val allApps = remember {
-        listOf(
-            AppEntry("schedule", "课表", Icons.Filled.CalendarMonth, AhuBlue, onOpenSchedule),
-            AppEntry("grade", "成绩", Icons.Filled.Grade, AhuRed, onOpenGrade),
-            AppEntry("exam", "考试", Icons.AutoMirrored.Filled.EventNote, AhuOrange, onOpenExam),
-            AppEntry("card", "账单", Icons.Filled.AccountBalanceWallet, AhuGreen, onOpenCard),
-            AppEntry("noticeList", "通告", Icons.Filled.Campaign, AhuViolet, onOpenNoticeList),
-            AppEntry("bathroom", "浴室", Icons.Filled.WaterDrop, AhuTeal, onOpenBathroom),
-            AppEntry("ac", "空调", Icons.Filled.AcUnit, AhuBlue, onOpenAc),
-            AppEntry("lighting", "照明", Icons.Filled.Lightbulb, AhuOrange, onOpenLighting),
-            AppEntry("internet", "网费", Icons.Filled.Wifi, AhuIndigo, onOpenInternet),
-            AppEntry("cardAnalytics", "消费分析", Icons.Filled.Assessment, AhuViolet, onOpenCardAnalytics),
-            AppEntry("trainingPlan", "培养方案", Icons.Filled.School, Color(0xFF6C63FF), onOpenTrainingPlan),
-            AppEntry("emptyClassroom", "空教室", Icons.Filled.Room, AhuGreen, onOpenEmptyClassroom),
-        )
-    }
-    val appMap = remember(allApps) { allApps.associateBy { it.key } }
-    // 取最近 3 个有注册表的; 不足 3 个时用默认补足
+    // 回调表：app key → onClick。AppRegistry 只管元数据(无回调),
+    // 回调在 Composable 内组装以便注入 onRecordApp / onOpenSchedule 等。
+    val clickMap = mapOf(
+        AppRegistry.KEY_SCHEDULE to onOpenSchedule,
+        AppRegistry.KEY_GRADE to onOpenGrade,
+        AppRegistry.KEY_EXAM to onOpenExam,
+        AppRegistry.KEY_CARD to onOpenCard,
+        AppRegistry.KEY_NOTICE_LIST to onOpenNoticeList,
+        AppRegistry.KEY_BATHROOM to onOpenBathroom,
+        AppRegistry.KEY_AC to onOpenAc,
+        AppRegistry.KEY_LIGHTING to onOpenLighting,
+        AppRegistry.KEY_INTERNET to onOpenInternet,
+        AppRegistry.KEY_CARD_ANALYTICS to onOpenCardAnalytics,
+        AppRegistry.KEY_TRAINING_PLAN to onOpenTrainingPlan,
+        AppRegistry.KEY_EMPTY_CLASSROOM to onOpenEmptyClassroom,
+    )
+    // 拼接最近使用的 AppEntry(由 AppRegistry 提供元数据,clickMap 提供回调)
     val displayApps = remember(recentApps) {
-        val recent = recentApps.mapNotNull { appMap[it] }
-        if (recent.size >= 3) recent.take(3)
-        else {
-            val defaults = listOf("schedule", "grade", "exam")
-                .mapNotNull { appMap[it] }
-                .filter { it.key !in recent.map { r -> r.key } }
-            (recent + defaults).take(3)
-        }
+        com.yourname.ahu_plus.data.home.AppRegistry
+            .pickRecent(recentApps, maxCount = 3)
+            .mapNotNull { spec ->
+                val onClick = clickMap[spec.key] ?: return@mapNotNull null
+                AppEntry(spec.key, spec.title, spec.icon, spec.tint, onClick)
+            }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -27,6 +27,7 @@ fun ChaoxingScreen(
             loginState = loginState,
             onLogin = viewModel::login,
             onBack = onBack,
+            savedPhone = viewModel.sessionManager.getCxPhone() ?: "",
         )
     }
 }

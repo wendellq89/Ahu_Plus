@@ -15,6 +15,7 @@ import com.yourname.ahu_plus.data.model.InternetBalanceData
 import com.yourname.ahu_plus.data.model.InternetBillRecord
 import com.yourname.ahu_plus.data.model.StudentInfo
 import com.yourname.ahu_plus.data.repository.AdwmhCardRepository
+import com.yourname.ahu_plus.data.repository.AdwmhLoginInfo
 import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
@@ -930,45 +931,137 @@ class HomeViewModel(
         }
     }
 
+    /** 连续 QR 加载失败次数，用于退避 */
+    private var qrConsecutiveFailures = 0
+
     fun loadCampusQrCode() {
         val qrRepository = adwmhCardRepository ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(qrLoading = true, qrError = null) }
             withContext(Dispatchers.IO) {
+                // 先尝试直接加载（用已有 session）
                 val qrResult = qrRepository.getQrCode()
-                val balanceResult = qrRepository.getBalance()
-                _uiState.update { state ->
-                    qrResult.fold(
-                        onSuccess = { qr ->
-                            state.copy(
-                                qrCode = qr,
-                                qrBalance = balanceResult.getOrNull() ?: state.qrBalance,
-                                qrLoading = false,
-                                qrError = null
-                            )
-                        },
-                        onFailure = { e ->
-                            state.copy(
-                                qrLoading = false,
-                                qrError = e.message ?: "QR code load failed"
-                            )
+                if (qrResult.isSuccess) {
+                    qrConsecutiveFailures = 0
+                    val balanceResult = qrRepository.getBalance()
+                    _uiState.update { state ->
+                        state.copy(
+                            qrCode = qrResult.getOrThrow(),
+                            qrBalance = balanceResult.getOrNull() ?: state.qrBalance,
+                            qrLoading = false,
+                            qrError = null
+                        )
+                    }
+                    return@withContext
+                }
+
+                val errorMsg = qrResult.exceptionOrNull()?.message.orEmpty()
+                val isTimeout = errorMsg.contains("超时") || errorMsg.contains("timeout")
+
+                // 仅会话过期时自动重登录；超时/网络问题不触发重登录（避免加重速率限制）
+                val isAuthError = errorMsg.contains("会话已过期") ||
+                    errorMsg.contains("重新登录") ||
+                    errorMsg.contains("请先登录") ||
+                    errorMsg.contains("返回 HTML")
+
+                if (isAuthError) {
+                    val username = sessionManager.getUsername()
+                    val password = sessionManager.getPassword()
+                    if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
+                        val loginResult = qrRepository.autoLogin(
+                            username, password,
+                            concurrentRetry = false  // 速率限制下禁用并发重试
+                        )
+                        if (loginResult.isSuccess) {
+                            qrConsecutiveFailures = 0
+                            val retryQr = qrRepository.getQrCode()
+                            val balanceResult = qrRepository.getBalance()
+                            _uiState.update { state ->
+                                retryQr.fold(
+                                    onSuccess = { qr ->
+                                        state.copy(
+                                            qrCode = qr,
+                                            qrBalance = balanceResult.getOrNull() ?: state.qrBalance,
+                                            qrLoading = false,
+                                            qrError = null
+                                        )
+                                    },
+                                    onFailure = { e2 ->
+                                        qrConsecutiveFailures++
+                                        state.copy(
+                                            qrLoading = false,
+                                            qrError = e2.message ?: "QR 加载失败"
+                                        )
+                                    }
+                                )
+                            }
+                            return@withContext
                         }
+                    }
+                }
+
+                // 全部失败（超时或登录失败）
+                qrConsecutiveFailures++
+                _uiState.update {
+                    it.copy(
+                        qrLoading = false,
+                        qrError = if (isTimeout) "支付码服务暂不可用" else errorMsg.ifBlank { "加载失败" }
                     )
                 }
             }
         }
     }
 
+    // ── 智慧安大自动登录（参考 AHUTong）──────────────────
+
+    /** 后台自动登录智慧安大，登录成功后自动加载 QR 码。 */
+    fun autoLoginAdwmh() {
+        val qrRepository = adwmhCardRepository ?: return
+        val username = sessionManager.getUsername()
+        val password = sessionManager.getPassword()
+        if (username.isNullOrBlank() || password.isNullOrBlank()) {
+            _uiState.update { it.copy(qrError = "请先完成统一身份认证") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(qrLoading = true, qrError = null) }
+            withContext(Dispatchers.IO) {
+                qrRepository.autoLogin(username, password, sessionManager.getAdwmhConcurrentRetry()).fold(
+                    onSuccess = {
+                        // 登录成功 → 加载 QR 码
+                        loadCampusQrCode()
+                    },
+                    onFailure = { e ->
+                        _uiState.update {
+                            it.copy(
+                                qrLoading = false,
+                                qrError = e.message ?: "智慧安大登录失败"
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    fun hasAdwmhSession(): Boolean = adwmhCardRepository?.hasSession() ?: false
+
+    /** 读取设置：是否在支付码界面自动调高亮度 */
+    fun getQrBrightnessBoost(): Boolean = sessionManager.getQrBrightnessBoost()
+
+    /** 读取设置：智慧安大登录是否启用并发重试 */
+    fun getAdwmhConcurrentRetry(): Boolean = sessionManager.getAdwmhConcurrentRetry()
+
+    fun setQrBrightnessBoost(enabled: Boolean) { viewModelScope.launch { sessionManager.setQrBrightnessBoost(enabled) } }
+    fun setAdwmhConcurrentRetry(enabled: Boolean) { viewModelScope.launch { sessionManager.setAdwmhConcurrentRetry(enabled) } }
+
+    /** @deprecated 保留兼容 — 手动导入 session 的旧入口。 */
     fun importAdwmhSession(sessionId: String) {
         val qrRepository = adwmhCardRepository ?: return
         viewModelScope.launch {
             qrRepository.importSessionId(sessionId)
             loadCampusQrCode()
         }
-    }
-
-    fun getAdwmhAuthStartUrl(): String {
-        return adwmhCardRepository?.getAuthStartUrl().orEmpty()
     }
 
     // ── 电费通用加载 ────────────────────────────────────
@@ -1034,9 +1127,21 @@ class HomeViewModel(
     private fun startQrAutoRefresh() {
         if (adwmhCardRepository == null) return
         viewModelScope.launch {
+            val baseInterval = (QR_REFRESH_INTERVAL_MS / 1000).toInt()
             while (true) {
                 loadCampusQrCode()
-                delay(QR_REFRESH_INTERVAL_MS)
+                // 指数退避：连续失败越多，等待越久（最多 4 分钟）
+                val backoffMultiplier = when {
+                    qrConsecutiveFailures >= 5 -> 6   // 5+ 次失败 → 4.5 分钟
+                    qrConsecutiveFailures >= 3 -> 3   // 3-4 次失败 → 2.25 分钟
+                    qrConsecutiveFailures >= 1 -> 2   // 1-2 次失败 → 1.5 分钟
+                    else -> 1                         // 正常 → 45 秒
+                }
+                val totalSeconds = baseInterval * backoffMultiplier
+                for (remaining in totalSeconds downTo 0) {
+                    _uiState.update { it.copy(qrCountdownSeconds = remaining) }
+                    delay(1000)
+                }
             }
         }
     }
@@ -1085,6 +1190,14 @@ data class HomeUiState(
     val qrBalance: Double? = null,
     val qrLoading: Boolean = false,
     val qrError: String? = null,
+    val qrCountdownSeconds: Int = 0,
+    // 智慧安大登录态
+    val adwmhCaptchaBytes: ByteArray? = null,
+    val adwmhCaptchaLoading: Boolean = false,
+    val adwmhCaptchaError: String? = null,
+    val adwmhLoginLoading: Boolean = false,
+    val adwmhLoginError: String? = null,
+    val adwmhLoginInfo: AdwmhLoginInfo? = null,
 )
 
 enum class ElectricityBillRange(val label: String, val loadingText: String, val emptyText: String) {

@@ -22,6 +22,21 @@ import com.yourname.ahu_plus.ui.theme.AhuPlusTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        /**
+         * deep-link extra key:由通知 / widget 等入口传入,
+         * AppNavigation 据此决定初始跳转。
+         */
+        const val EXTRA_DEEP_LINK = "deep_link"
+
+        /** 深链到课表页(课程提醒通知点击时使用) */
+        const val DEEP_LINK_SCHEDULE = "schedule"
+
+        /** 深链到成绩页 */
+        const val DEEP_LINK_GRADE = "grade"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
