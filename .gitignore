@@ -28,6 +28,8 @@ local.properties
 *.keystore
 *.p12
 *.pem
+.jwt_token
+*.jwt_token
 cos_config.properties
 app/src/main/assets/cos_config.properties
 
@@ -44,7 +46,7 @@ SECURITY.md
 
 # ── 开发工具脚本（不上传）────────────────────────────────
 # tools/exam_prediction/ 例外 — 公开的排考预测工具
-tools/
+tools/*
 !tools/exam_prediction/
 
 # ── 备份与调试产物 ────────────────────────────────────────
