@@ -1,0 +1,13 @@
+{
+    "latestVersion": "1.4.0",
+    "latestVersionCode": 140,
+    "minSupportedVersionCode": 0,
+    "downloadUrl": "https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v1.4.0/app-arm64-v8a-release.apk",
+    "apkFileName": "ahu_plus_1.4.0.apk",
+    "fileSize": 31457280,
+    "sha256": "",
+    "releaseNotes": [
+      "自动更新模块改造",
+      "..."
+    ]
+  }
