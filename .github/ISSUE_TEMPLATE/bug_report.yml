@@ -1,0 +1,92 @@
+name: Bug 报告
+description: 报告一个功能异常或崩溃
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈,提交前请先在 [Issues](../) 搜索一下,看是否已有相同的问题。
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App 版本
+      description: 在「我的 → 关于」查看,例如 v1.3.5
+      placeholder: v1.3.5
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 手机型号
+      placeholder: 例如 小米 14 / 红米 K70
+    validations:
+      required: true
+
+  - type: input
+    id: android-version
+    attributes:
+      label: Android 版本
+      placeholder: 例如 Android 14 (MIUI 15) / HarmonyOS 4.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: 涉及模块
+      multiple: true
+      options:
+        - 登录 / CAS
+        - 课表
+        - 成绩 / GPA
+        - 考试 / 排考预测
+        - 一卡通 / 账单 / 水电费
+        - 智慧安大支付码
+        - 学习通(课程/作业/消息)
+        - 学习通自动学习
+        - 培养方案
+        - 空闲教室
+        - 桌面 Widget / 课程提醒
+        - 个人信息 / 设置
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 出了什么问题? 期望的行为是什么?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 看到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 如有崩溃可贴 logcat / adb 日志;UI 异常可附截图(直接拖入此输入框)
+      render: shell
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认事项
+      options:
+        - label: 我已搜索过现有 Issue,确认不是重复问题
+          required: true
+        - label: 我没有在描述、截图或日志中包含账号密码、JWT、Cookie 等敏感信息
+          required: true
