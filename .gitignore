@@ -63,6 +63,9 @@ version.json.v*
 *.csv
 !tools/exam_prediction/output_*.csv
 
+# ── git 重写历史时的临时备份目录 ──────────────────────
+.git.backup-*/
+
 # ── 截图与导出 ────────────────────────────────────────────
 *.png
 tools/_cap*.png

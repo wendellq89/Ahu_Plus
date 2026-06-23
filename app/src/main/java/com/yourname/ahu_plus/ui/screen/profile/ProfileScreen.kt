@@ -862,29 +862,16 @@ private fun buildMyInfoDescription(
 @Composable
 private fun DeveloperContactDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val devEmail = "2867299793@qq.com"
 
-    /**
-     * 拉起 QQ 加群: 先 mqqapi://scheme(若 QQ 客户端已安装),
-     * 失败则 fallback 到 https://qm.qq.com/q/<groupUin>(QQ 群推广页)
-     */
-    fun openGroup(groupUin: String) {
-        val ok = com.yourname.ahu_plus.util.BrowserOpener.openQQGroup(context, groupUin)
+    fun sendEmail() {
+        val ok = com.yourname.ahu_plus.util.BrowserOpener.openEmail(
+            context = context,
+            email = devEmail,
+            subject = "[Ahu_Plus 反馈] "
+        )
         if (!ok) {
-            com.yourname.ahu_plus.util.BrowserOpener.open(context, "https://qm.qq.com/q/$groupUin")
-            Toast.makeText(context, "未检测到 QQ,已打开网页版群页", Toast.LENGTH_LONG).show()
-        }
-        onDismiss()
-    }
-
-    /**
-     * 拉起 QQ 加好友: 先 mqqapi://scheme,失败则 fallback 到 https://wpa.qq.com/msgrd?v=3&uin=<uin>
-     */
-    fun openFriend(uin: String) {
-        val ok = com.yourname.ahu_plus.util.BrowserOpener.openQQ(context, uin)
-        if (!ok) {
-            com.yourname.ahu_plus.util.BrowserOpener.open(context, "https://wpa.qq.com/msgrd?v=3&uin=$uin")
-            Toast.makeText(context, "未检测到 QQ,已打开网页版加好友", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "未检测到邮件客户端,请手动发送至 $devEmail", Toast.LENGTH_LONG).show()
         }
         onDismiss()
     }
@@ -895,15 +882,9 @@ private fun DeveloperContactDialog(onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ContactMethodRow(
-                    title = "加入 QQ 讨论群",
-                    value = "483448621",
-                    onClick = { openGroup("483448621") }
-                )
-                HorizontalDivider()
-                ContactMethodRow(
-                    title = "加开发者 QQ 好友",
-                    value = "2867299793",
-                    onClick = { openFriend("2867299793") }
+                    title = "发送邮件给开发者",
+                    value = devEmail,
+                    onClick = { sendEmail() }
                 )
             }
         },

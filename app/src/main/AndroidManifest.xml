@@ -23,8 +23,6 @@
 
     <queries>
         <package android:name="com.tencent.mm" />
-        <!-- 2026-06-22 新增:联系开发者 / 推荐给朋友 用 mqqapi:// 加好友/加群 -->
-        <package android:name="com.tencent.mobileqq" />
     </queries>
 
     <application
