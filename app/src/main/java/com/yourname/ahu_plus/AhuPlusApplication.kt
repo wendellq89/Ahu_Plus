@@ -26,6 +26,7 @@ import com.yourname.ahu_plus.data.repository.GradeRepository
 import com.yourname.ahu_plus.data.repository.HomeworkRepository
 import com.yourname.ahu_plus.data.repository.ProgramCompletionRepository
 import com.yourname.ahu_plus.data.repository.TrainingPlanRepository
+import com.yourname.ahu_plus.data.repository.ExamDataRepository
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
@@ -110,6 +111,8 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var updateManager: UpdateManager
         private set
+    lateinit var examDataRepository: ExamDataRepository
+        private set
     override fun onCreate() {
         super.onCreate()
 
@@ -151,6 +154,9 @@ class AhuPlusApplication : Application() {
         gradeRepository = GradeRepository(jwAuthRepository)
         examRepository = ExamRepository(jwAuthRepository)
         emptyClassroomRepository = EmptyClassroomRepository(jwAuthRepository)
+        // 排考预测:从 Gitee yao-enqi/ahu-plus-update 仓库拉取标准化 JSON,
+        // 不再走 jwapp JWT 登录流程 (2026-06-23 重构)。
+        examDataRepository = ExamDataRepository(sessionManager)
         trainingPlanRepository = TrainingPlanRepository(jwAuthRepository)
         programCompletionRepository = ProgramCompletionRepository(jwAuthRepository)
         // 财务汇总 / 考勤缺勤 复用 studentInfoRepository 的 SSO 会话 (tp_ep_stu)

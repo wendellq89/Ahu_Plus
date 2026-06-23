@@ -16,6 +16,8 @@ app/build/
 .cxx
 local.properties
 .env
+tools/.jwt_token
+tools/exam_prediction/.jwt_token
 cos_config.properties
 app/src/main/assets/cos_config.properties
 *.log

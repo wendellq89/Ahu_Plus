@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -47,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.AhuPlusApplication
+import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.ui.components.AhuIconBox
 import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.ui.theme.AhuGradient
@@ -65,6 +67,8 @@ import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
 import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
 import com.yourname.ahu_plus.ui.screen.exam.ExamScreen
 import com.yourname.ahu_plus.ui.screen.exam.ExamViewModel
+import com.yourname.ahu_plus.ui.screen.exam.ExamPredictionScreen
+import com.yourname.ahu_plus.ui.screen.exam.ExamPredictionViewModel
 import com.yourname.ahu_plus.ui.screen.grade.GradeScreen
 import com.yourname.ahu_plus.ui.screen.grade.GradeViewModel
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
@@ -99,6 +103,7 @@ import com.yourname.ahu_plus.ui.theme.AhuViolet
 private const val PAGE_SCHEDULE = "schedule"
 private const val PAGE_GRADE = "grade"
 private const val PAGE_EXAM = "exam"
+private const val PAGE_EXAM_PREDICTION = "examPrediction"
 private const val PAGE_NOTICES = "notices"
 private const val PAGE_BILLS = "bills"
 private const val PAGE_ANALYTICS = "analytics"
@@ -130,6 +135,7 @@ fun AppHubScreen(
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
+    val sessionManager: SessionManager = app.sessionManager
 
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
     val studentInfoUiState by studentInfoViewModel.uiState.collectAsStateWithLifecycle()
@@ -144,6 +150,7 @@ fun AppHubScreen(
     BackHandler(enabled = currentPage != null) {
         currentPage = when (currentPage) {
             PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING -> PAGE_MY_INFO_HUB
+            PAGE_EXAM_PREDICTION -> PAGE_EXAM
             else -> null
         }
     }
@@ -163,8 +170,19 @@ fun AppHubScreen(
         PAGE_EXAM -> ExamScreen(
             viewModel = examViewModel,
             onBack = { currentPage = null },
-            onNeedsLogin = onNeedsLogin
+            onNeedsLogin = onNeedsLogin,
+            onOpenPrediction = { currentPage = PAGE_EXAM_PREDICTION }
         )
+        PAGE_EXAM_PREDICTION -> {
+            // 进入排考预测页时才创建 VM,触发首次拉取
+            val examPredictionViewModel = remember {
+                ExamPredictionViewModel(app.examDataRepository, sessionManager)
+            }
+            ExamPredictionScreen(
+                viewModel = examPredictionViewModel,
+                onBack = { currentPage = PAGE_EXAM }
+            )
+        }
         PAGE_TRAINING_PLAN -> TrainingPlanScreen(
             viewModel = trainingPlanViewModel,
             onBack = { currentPage = null },

@@ -66,6 +66,8 @@ import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
 import com.yourname.ahu_plus.ui.screen.exam.ExamScreen
 import com.yourname.ahu_plus.ui.screen.exam.ExamViewModel
+import com.yourname.ahu_plus.ui.screen.exam.ExamPredictionScreen
+import com.yourname.ahu_plus.ui.screen.exam.ExamPredictionViewModel
 import com.yourname.ahu_plus.ui.screen.grade.GradeScreen
 import com.yourname.ahu_plus.ui.screen.grade.GradeViewModel
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
@@ -96,6 +98,7 @@ private const val HOME_EXAM = 4
 private const val HOME_BILLS = 5
 private const val HOME_TRAINING_PLAN = 6
 private const val HOME_EMPTY_CLASSROOM = 7
+private const val HOME_EXAM_PREDICTION = 8
 
 @Composable
 fun MainScreen(
@@ -171,7 +174,9 @@ fun MainScreen(
         when {
             // 1. 我的 Tab 子页面 → 我的主页 (ProfileScreen 内部 BackHandler 先拦截,这里兜底)
             profileSubPage != null -> profileSubPage = null
-            // 2. 首页子页面 → Dashboard
+            // 2. 预测页 → 考试页（精确回退，不回 Dashboard）
+            homePage == HOME_EXAM_PREDICTION -> homePage = HOME_EXAM
+            // 3. 首页其他子页面 → Dashboard
             homePage != HOME_DASHBOARD -> homePage = HOME_DASHBOARD
             // 3. 跨 Tab 跳转过来的 → 回到上一页 Tab
             previousTab != null -> {
@@ -476,8 +481,19 @@ fun MainScreen(
                         HOME_EXAM -> ExamScreen(
                             viewModel = examViewModel,
                             onBack = { homePage = HOME_DASHBOARD },
-                            onNeedsLogin = onReauth
+                            onNeedsLogin = onReauth,
+                            onOpenPrediction = { homePage = HOME_EXAM_PREDICTION }
                         )
+                        HOME_EXAM_PREDICTION -> {
+                            // 进入排考预测页时才创建 VM,触发首次拉取
+                            val examPredictionViewModel = remember {
+                                ExamPredictionViewModel(app.examDataRepository, sessionManager)
+                            }
+                            ExamPredictionScreen(
+                                viewModel = examPredictionViewModel,
+                                onBack = { homePage = HOME_EXAM }
+                            )
+                        }
                         HOME_BILLS -> {
                             val cardState by cardViewModel.uiState.collectAsStateWithLifecycle()
                             com.yourname.ahu_plus.ui.screen.profile.BillDetailScreen(

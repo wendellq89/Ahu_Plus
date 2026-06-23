@@ -692,6 +692,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
     @Volatile private var cachedAdwmhSessionId: String? = null
+    /**
+     * 排考预测 Gitee JSON 缓存:
+     * 由 [com.yourname.ahu_plus.data.repository.ExamDataRepository]
+     * 从 Gitee `yao-enqi/ahu-plus-update` 仓库的
+     * `exam_predictions/exam_predictions.json` 拉取后写入。
+     * 客户端读取时解析 meta + 与本地课表 courseCode 精确匹配。
+     */
+    @Volatile private var cachedExamPredictionsJson: String? = null
 
 
 
@@ -1726,6 +1734,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         cachedAdwmhSessionId = prefs[ADWMH_SESSION_KEY]
+
+        cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
 
 
 
@@ -6341,6 +6351,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         cachedAdwmhSessionId = null
+        cachedExamPredictionsJson = null
 
 
 
@@ -6459,6 +6470,23 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+
+    // ── 排考预测 Gitee JSON 缓存 ─────────────────────────
+    // 由 ExamDataRepository 从 Gitee yao-enqi/ahu-plus-update 仓库的
+    // exam_predictions/exam_predictions.json 拉取后写入。
+    // (2026-06-23 改为 Gitee 共享,原先的 jwapp JWT 登录流程已废弃。)
+
+    fun getExamPredictionsJson(): String? = cachedExamPredictionsJson
+
+    suspend fun saveExamPredictionsJson(json: String) {
+        cachedExamPredictionsJson = json
+        appDataStore.dataStore.edit { it[EXAM_PREDICTIONS_JSON_KEY] = json }
+    }
+
+    suspend fun clearExamPredictionsJson() {
+        cachedExamPredictionsJson = null
+        appDataStore.dataStore.edit { it.remove(EXAM_PREDICTIONS_JSON_KEY) }
+    }
 
     fun getTrainingPlanJson(): String? =
 
@@ -7331,6 +7359,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         cachedAdwmhSessionId = null
+        cachedExamPredictionsJson = null
 
 
 
@@ -9236,6 +9265,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         val ADWMH_SESSION_KEY = stringPreferencesKey("adwmh_jsessionid")
+        val EXAM_PREDICTIONS_JSON_KEY = stringPreferencesKey("exam_predictions_json")
 
 
 
@@ -9710,7 +9740,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-            ADWMH_SESSION_KEY,
+            ADWMH_SESSION_KEY, EXAM_PREDICTIONS_JSON_KEY,
 
 
 
